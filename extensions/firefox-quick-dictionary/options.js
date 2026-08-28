@@ -45,7 +45,7 @@ async function save(showMessage = true) {
 
 saveButton.addEventListener("click", () => save(true));
 
-shortcutButton.addEventListener("click", () => browser.commands.openShortcutSettings());
+shortcutButton.addEventListener("click", () => browser.tabs.create({ url: "about:addons" }));
 
 testButton.addEventListener("click", async () => {
   await save(false);

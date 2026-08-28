@@ -23,7 +23,7 @@ function ensureContextMenu() {
   try {
     browser.menus.create({
       id: "mw-define-word",
-      title: "Define with Merriam-Webster",
+      title: "Define with Kat's Dictionary",
       contexts: ["page", "selection"]
     }, () => {
       // Ignore duplicate-ID errors when Firefox restores a persisted menu.
