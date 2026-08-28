@@ -14,15 +14,16 @@ Every package uses neutral placeholders and must be configured for a site you ar
 | Bulk Contact Replacer | Replace one configured contact with another across records | [Source](extensions/bulk-contact-replacer/) | [ZIP](downloads/bulk-contact-replacer.zip) |
 | Bulk Email Field Cleaner | Clear a configured email field and log results | [Source](extensions/bulk-email-field-cleaner/) | [ZIP](downloads/bulk-email-field-cleaner.zip) |
 | Bulk Related Contact Cleaner | Clear a related-contact field and disable a paired option | [Source](extensions/bulk-related-contact-cleaner/) | [ZIP](downloads/bulk-related-contact-cleaner.zip) |
+| Kat's Dictionary | Firefox dictionary with highlight, context-menu, toolbar search, and adaptive themes; users provide their own API keys | [Source](extensions/kats-dictionary/) | [ZIP](downloads/kats-dictionary-v1.3.0.zip) |
 
 ## Installation
 
 1. Download and extract a ZIP, or clone the repository.
 2. Read the template's README and configure its placeholder host, selectors, and values.
-3. Open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**.
+3. For Chrome projects, open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**. For Kat's Dictionary, follow its Firefox-specific README.
 4. Select the configured extension folder.
 
-These templates use Chrome Manifest V3 and plain JavaScript. Last updated: 2026-08-05.
+These templates use browser extension Manifest V3 and plain JavaScript. Last updated: 2026-08-27.
 
 ## Safety and provenance
 
