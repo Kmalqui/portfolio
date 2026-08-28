@@ -15,12 +15,13 @@ Every package uses neutral placeholders and must be configured for a site you ar
 | Bulk Email Field Cleaner | Clear a configured email field and log results | [Source](extensions/bulk-email-field-cleaner/) | [ZIP](downloads/bulk-email-field-cleaner.zip) |
 | Bulk Related Contact Cleaner | Clear a related-contact field and disable a paired option | [Source](extensions/bulk-related-contact-cleaner/) | [ZIP](downloads/bulk-related-contact-cleaner.zip) |
 | Firefox Quick Dictionary | Firefox dictionary with highlight, context-menu, toolbar search, and adaptive themes; users provide their own API keys | [Source](extensions/firefox-quick-dictionary/) | [Firefox XPI](downloads/kats-dictionary.xpi) · [Source ZIP](downloads/firefox-quick-dictionary-v1.3.0.zip) |
+| Chrome Quick Dictionary | Chrome dictionary with highlight, context-menu, toolbar search, and adaptive themes; users provide their own API keys | [Source](extensions/chrome-quick-dictionary/) | [ZIP](downloads/chrome-quick-dictionary-v1.3.0.zip) |
 
 ## Installation
 
 1. Download and extract a ZIP, or clone the repository.
 2. Read the template's README and configure its placeholder host, selectors, and values.
-3. For Chrome projects, open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**. For Kat's Dictionary, follow its Firefox-specific README.
+3. For Chrome projects, open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**. For Firefox Quick Dictionary, follow its Firefox-specific README.
 4. Select the configured extension folder.
 
 These templates use browser extension Manifest V3 and plain JavaScript. Last updated: 2026-08-28.

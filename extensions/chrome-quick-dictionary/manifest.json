@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Chrome Quick Dictionary",
+  "version": "1.3.0",
+  "description": "Instant Merriam-Webster definitions for highlighted or right-clicked words, with adaptive page-aware themes, pin, copy, keyboard shortcut, and toolbar search.",
+  "permissions": [
+    "storage",
+    "menus",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://www.dictionaryapi.com/*",
+    "https://media.merriam-webster.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Chrome Quick Dictionary",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; img-src 'self' https://dictionaryapi.com data:; connect-src 'self' https://www.dictionaryapi.com https://media.merriam-webster.com"
+  },
+  "commands": {
+    "open-quick-dictionary": {
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      },
+      "description": "Define the selected word or open Chrome Quick Dictionary search"
+    }
+  }
+}

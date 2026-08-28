@@ -36,6 +36,18 @@ The public repository and downloadable XPI ship with **blank API-key fields**. E
 
 The keys stay in Firefox's local extension storage. Do not add them to source files, ZIP/XPI packages, screenshots, issues, or commits. If you fork this repository, keep all API keys and other secrets out of source control; forks should retain the blank-key defaults.
 
+## Use the Chrome version
+
+A separate [Chrome Quick Dictionary](../chrome-quick-dictionary/) package is included in this repository.
+
+1. Download and extract `chrome-quick-dictionary-v1.3.0.zip`.
+2. Open `chrome://extensions` in Chrome and turn on **Developer mode**.
+3. Select **Load unpacked**, then choose the extracted `chrome-quick-dictionary` folder.
+4. Find **Chrome Quick Dictionary**, select **Details**, and open **Extension options**.
+5. Paste your Dictionary and Thesaurus keys into their matching fields, select **Save settings**, and refresh any webpages that were already open.
+
+See the [Chrome README](../chrome-quick-dictionary/README.md) for the complete Chrome installation, API-key, shortcut, privacy, and testing instructions.
+
 ## Install for local testing
 
 1. Download and extract the source ZIP, or clone this repository.

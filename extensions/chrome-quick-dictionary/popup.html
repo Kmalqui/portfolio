@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chrome Quick Dictionary</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="header">
+    <img src="https://dictionaryapi.com/images/info/branding-guidelines/MWLogo_LightBG_120x120_2x.png" class="logo" alt="Merriam-Webster">
+    <div>
+      <div class="brand">Merriam-Webster's Collegiate<sup>®</sup> Dictionary</div>
+      <div class="sub">Chrome Quick Dictionary</div>
+    </div>
+  </header>
+
+  <form id="searchForm" class="search">
+    <input id="searchInput" type="text" placeholder="Search for a word…" autocomplete="off" spellcheck="false">
+    <button type="submit">Define</button>
+  </form>
+
+  <main id="results" class="results">
+    <p class="muted">Highlight a word on a page, right-click a word, or search here.</p>
+  </main>
+
+  <footer class="footer">
+    <span>Definitions powered by Merriam-Webster Inc.</span>
+    <button id="settingsButton" type="button" class="link-button">Settings</button>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

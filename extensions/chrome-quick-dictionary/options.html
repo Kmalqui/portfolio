@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chrome Quick Dictionary Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="card">
+    <header class="title-row">
+      <img src="https://dictionaryapi.com/images/info/branding-guidelines/MWLogo_LightBG_120x120_2x.png" class="logo" alt="Merriam-Webster">
+      <div>
+        <h1>Chrome Quick Dictionary Settings</h1>
+        <p>Merriam-Webster's Collegiate<sup>®</sup> Dictionary + Collegiate<sup>®</sup> Thesaurus</p>
+      </div>
+    </header>
+
+    <section>
+      <h2>Behavior</h2>
+      <label class="toggle-row">
+        <input id="autoLookup" type="checkbox">
+        <span>
+          <strong>Automatically define highlighted words</strong>
+          <small>When you highlight a single word, show its definition beside the selection.</small>
+        </span>
+      </label>
+      <label class="toggle-row">
+        <input id="showSynonyms" type="checkbox">
+        <span>
+          <strong>Show synonyms and antonyms</strong>
+          <small>Uses the Merriam-Webster Collegiate Thesaurus API.</small>
+        </span>
+      </label>
+    </section>
+
+    <section>
+      <h2>Appearance</h2>
+      <label for="themeMode">Dictionary color scheme</label>
+      <select id="themeMode">
+        <option value="auto">Auto — match the page</option>
+        <option value="light">Always light</option>
+        <option value="dark">Always dark</option>
+      </select>
+      <p class="helper">Auto samples the area around the word you define, so the card stays readable on both light and dark sections of a page.</p>
+    </section>
+
+    <section>
+      <h2>Keyboard shortcut</h2>
+      <p class="note">Press <strong id="shortcutText">Alt+Shift+D</strong> to define the selected word. With nothing selected, it opens dictionary search.</p>
+      <button id="shortcutButton" type="button" class="secondary">Change shortcut in Chrome</button>
+    </section>
+
+    <section>
+      <h2>API keys</h2>
+      <p class="note">Enter your own Merriam-Webster API keys. They are stored only in Chrome's local extension storage and are not included in this source package.</p>
+
+      <label for="dictionaryKey">Dictionary key</label>
+      <div class="key-row">
+        <input id="dictionaryKey" type="password" autocomplete="off">
+        <button type="button" class="secondary reveal" data-target="dictionaryKey">Show</button>
+      </div>
+
+      <label for="thesaurusKey">Thesaurus key</label>
+      <div class="key-row">
+        <input id="thesaurusKey" type="password" autocomplete="off">
+        <button type="button" class="secondary reveal" data-target="thesaurusKey">Show</button>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="saveButton" type="button" class="primary">Save settings</button>
+      <button id="testButton" type="button" class="secondary">Test Merriam-Webster</button>
+      <span id="status" role="status"></span>
+    </div>
+
+    <footer>Definitions powered by Merriam-Webster Inc.</footer>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>
