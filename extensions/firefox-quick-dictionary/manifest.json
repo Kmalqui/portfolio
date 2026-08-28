@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Kat's Dictionary",
+  "name": "Firefox Quick Dictionary",
   "version": "1.3.0",
   "description": "Instant Merriam-Webster definitions for highlighted or right-clicked words, with adaptive page-aware themes, pin, copy, keyboard shortcut, and toolbar search.",
   "permissions": [
@@ -22,7 +22,7 @@
     ]
   },
   "action": {
-    "default_title": "Kat's Dictionary",
+    "default_title": "Firefox Quick Dictionary",
     "default_popup": "popup.html"
   },
   "options_ui": {
@@ -54,7 +54,7 @@
       "suggested_key": {
         "default": "Alt+Shift+D"
       },
-      "description": "Define the selected word or open Kat's Dictionary search"
+      "description": "Define the selected word or open Firefox Quick Dictionary search"
     }
   }
 }

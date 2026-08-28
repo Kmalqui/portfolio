@@ -1,6 +1,6 @@
-# Kat's Dictionary for Firefox
+# Firefox Quick Dictionary
 
-Kat's Dictionary is a Firefox WebExtension that looks up highlighted, right-clicked, or manually entered words through Merriam-Webster's Collegiate Dictionary and Collegiate Thesaurus APIs.
+Firefox Quick Dictionary is a Firefox WebExtension that looks up highlighted, right-clicked, or manually entered words through Merriam-Webster's Collegiate Dictionary and Collegiate Thesaurus APIs.
 
 ## Features
 
