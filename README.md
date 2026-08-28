@@ -14,7 +14,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 | Bulk Contact Replacer | Replace one configured contact with another across records | [Source](extensions/bulk-contact-replacer/) | [ZIP](downloads/bulk-contact-replacer.zip) |
 | Bulk Email Field Cleaner | Clear a configured email field and log results | [Source](extensions/bulk-email-field-cleaner/) | [ZIP](downloads/bulk-email-field-cleaner.zip) |
 | Bulk Related Contact Cleaner | Clear a related-contact field and disable a paired option | [Source](extensions/bulk-related-contact-cleaner/) | [ZIP](downloads/bulk-related-contact-cleaner.zip) |
-| Kat's Dictionary | Firefox dictionary with highlight, context-menu, toolbar search, and adaptive themes; users provide their own API keys | [Source](extensions/firefox-quick-dictionary/) | [Firefox XPI](downloads/kats-dictionary.xpi) · [Source ZIP](downloads/firefox-quick-dictionary-v1.3.0.zip) |
+| Firefox Quick Dictionary | Firefox dictionary with highlight, context-menu, toolbar search, and adaptive themes; users provide their own API keys | [Source](extensions/firefox-quick-dictionary/) | [Firefox XPI](downloads/kats-dictionary.xpi) · [Source ZIP](downloads/firefox-quick-dictionary-v1.3.0.zip) |
 
 ## Installation
 
