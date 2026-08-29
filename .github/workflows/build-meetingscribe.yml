@@ -1,0 +1,61 @@
+name: Build MeetingScribe for Windows
+
+on:
+  pull_request:
+    paths:
+      - "tools/meetingscribe/**"
+      - ".github/workflows/build-meetingscribe.yml"
+  push:
+    tags:
+      - "meetingscribe-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/meetingscribe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/meetingscribe/requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Validate source
+        run: python -m py_compile app.py
+
+      - name: Build application
+        run: pyinstaller --noconfirm MeetingScribe.spec
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build one-click installer
+        run: ISCC.exe installer.iss
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeetingScribe-Windows-Setup
+          path: tools/meetingscribe/installer-output/MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe
+          if-no-files-found: error
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/meetingscribe-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MeetingScribe 0.2.0 beta
+          prerelease: true
+          generate_release_notes: true
+          files: tools/meetingscribe/installer-output/MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe
