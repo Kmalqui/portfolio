@@ -9,6 +9,8 @@ for package in ('soundcard', 'soundfile', 'ctranslate2', 'tokenizers', 'huggingf
     binaries += b
     hiddenimports += h
 
+datas += [('assets/meetingscribe-icon.png', 'assets')]
+
 a = Analysis(
     ['app.py'],
     pathex=[],
@@ -32,6 +34,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon='assets/meetingscribe-icon.ico',
     disable_windowed_traceback=False,
 )
 coll = COLLECT(

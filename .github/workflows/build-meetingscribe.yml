@@ -48,14 +48,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MeetingScribe-Windows-Setup
-          path: tools/meetingscribe/installer-output/MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe
+          path: tools/meetingscribe/installer-output/MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe
           if-no-files-found: error
 
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/meetingscribe-v')
         uses: softprops/action-gh-release@v2
         with:
-          name: MeetingScribe 0.2.0 beta
+          name: MeetingScribe 0.2.1 beta
           prerelease: true
           generate_release_notes: true
-          files: tools/meetingscribe/installer-output/MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe
+          files: tools/meetingscribe/installer-output/MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe

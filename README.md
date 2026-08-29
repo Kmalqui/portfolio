@@ -8,7 +8,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 
 | Tool | What it does | Source | Download |
 |---|---|---|---|
-| MeetingScribe | Records microphone and Windows meeting audio, transcribes locally with Whisper, and creates private Markdown notes with Ollama | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.2.0-beta/MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe) |
+| MeetingScribe | Records permitted microphone and Windows meeting audio, transcribes locally with Whisper, and creates private Markdown notes with Ollama | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.2.1-beta/MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe) |
 
 ## Browser extensions
 
@@ -30,7 +30,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 3. For Chrome projects, open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**. For Firefox Quick Dictionary, follow its Firefox-specific README.
 4. Select the configured extension folder.
 
-The browser templates use Manifest V3 and plain JavaScript. MeetingScribe uses Python, PySide6, Whisper, and Ollama. Last updated: 2026-08-28.
+The browser templates use Manifest V3 and plain JavaScript. MeetingScribe uses Python, PySide6, Whisper, and Ollama. Last updated: 2026-08-29.
 
 ## Safety and provenance
 
