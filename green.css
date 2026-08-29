@@ -34,7 +34,11 @@ body { background-image: radial-gradient(#c7d0c5 1.1px, transparent 1.1px); }
 .workflow-helper { width: min(330px, 34vw); transform: rotate(-1.5deg); }
 .more-row { display: flex; align-items: center; justify-content: center; gap: clamp(24px, 6vw, 70px); margin-top: 38px; }
 .more-row .more-projects { margin: 0; }
-.hero { box-shadow: 0 14px 0 #9fca3d; }
+.hero {
+  min-height: 0;
+  padding-bottom: clamp(48px, 6vw, 72px);
+  box-shadow: 0 14px 0 #9fca3d;
+}
 .brand { padding: 0; background: none; box-shadow: none; transform: none; }
 .side-note { box-shadow: 5px 5px 0 #76942f; }
 .button { box-shadow: 6px 6px 0 #76942f; }
