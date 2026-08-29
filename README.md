@@ -4,6 +4,12 @@ Professional portfolio and a collection of reusable, configurable browser-extens
 
 Every package uses neutral placeholders and must be configured for a site you are authorized to automate. Review the host permissions, selectors, routes, field identifiers, and example values before loading an extension. Test in a non-production environment first.
 
+## Desktop tools
+
+| Tool | What it does | Source | Download |
+|---|---|---|---|
+| MeetingScribe | Records microphone and Windows meeting audio, transcribes locally with Whisper, and creates private Markdown notes with Ollama | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.2.0-beta/MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe) |
+
 ## Browser extensions
 
 | Template | What it demonstrates | Source | Download |
@@ -24,7 +30,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 3. For Chrome projects, open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**. For Firefox Quick Dictionary, follow its Firefox-specific README.
 4. Select the configured extension folder.
 
-These templates use browser extension Manifest V3 and plain JavaScript. Last updated: 2026-08-28.
+The browser templates use Manifest V3 and plain JavaScript. MeetingScribe uses Python, PySide6, Whisper, and Ollama. Last updated: 2026-08-28.
 
 ## Safety and provenance
 
