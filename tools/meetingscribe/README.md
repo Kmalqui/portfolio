@@ -10,7 +10,8 @@ After each meeting, MeetingScribe creates a folder containing:
 
 - `recording.wav` — the complete audio recording.
 - `transcript.txt` — everything Whisper could hear and transcribe.
-- `notes.md` — organized meeting notes in Markdown format.
+- `my-notes.md` — anything you typed in the **My notes** section.
+- `notes.md` — the final transcript at the top followed by organized AI meeting notes.
 - `meeting.json` — basic technical details about how the notes were processed.
 
 The generated notes normally include a title, summary, discussion points, decisions, action items, and the complete transcript.
@@ -36,7 +37,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.2.0-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
@@ -116,6 +117,8 @@ If it says **Install a model with Ollama**, follow the model-installation instru
 
 Start with `small`. The first meeting processed with a particular Whisper model downloads that model. This can take several minutes. Keep MeetingScribe open and connected to the internet during that first download.
 
+MeetingScribe provides near-real-time transcription in short chunks while recording. It is not instant word-by-word captioning. The delay depends on the computer and selected Whisper model. Use `small` for the fastest live transcription; `medium` and `large-v3` may fall behind on computers without a capable graphics card. After recording stops, MeetingScribe transcribes the complete recording again to create the final transcript.
+
 ## Part 5 — Test audio before a real meeting
 
 Always make a short test first.
@@ -123,17 +126,19 @@ Always make a short test first.
 1. Select the headset or speakers you will use.
 2. Play a video containing clear speech.
 3. In MeetingScribe, select the same device under **Meeting audio output**.
-4. Select **Start Recording**.
-5. Speak while the video plays.
-6. Check both meters:
-   - **Mic** should move when you speak.
-   - **Others** should move when the video or another participant speaks.
-7. Record for 15–30 seconds.
-8. Select **Stop & Create Notes**.
-9. Wait for transcription and note generation.
-10. Select **Open Meeting Folder**.
-11. Play `recording.wav` and confirm both voices are audible.
-12. Check `transcript.txt` and `notes.md`.
+4. Confirm that everyone has been informed and you have permission to record.
+5. Select the permission checkbox in MeetingScribe.
+6. Select **Start Recording**.
+7. Speak while the video plays.
+8. Check both audio panels while recording:
+   - **You (microphone)** should move when you speak.
+   - **Other people (meeting audio)** should move when the video or another participant speaks.
+9. Record for 15–30 seconds.
+10. Select **Stop & Create Notes**.
+11. Wait for transcription and note generation.
+12. Select **Open Meeting Folder**.
+13. Play `recording.wav` and confirm both voices are audible.
+14. Check `transcript.txt` and `notes.md`.
 
 Do not record an important meeting unless both meters move during the test.
 
@@ -144,14 +149,22 @@ Do not record an important meeting unless both meters move during the test.
 3. Join the meeting.
 4. Confirm the meeting application's microphone and speaker match MeetingScribe.
 5. Tell participants that recording is about to begin and obtain consent.
-6. Select **Start Recording**.
-7. Confirm both meters respond when people speak.
-8. Leave MeetingScribe open; you may minimize it.
-9. Do not let the computer sleep.
-10. At the end, select **Stop & Create Notes**.
-11. Wait while MeetingScribe transcribes and generates notes.
-12. Review the draft carefully. AI can misunderstand names, technical terms, decisions, owners, and deadlines.
-13. Edit the notes if needed and select **Save Edited Notes**.
+6. Select the permission checkbox. MeetingScribe will not enable recording until you acknowledge that participants have been informed and permission has been obtained.
+7. Select **Start Recording**.
+8. Confirm both audio panels respond when people speak.
+9. Leave MeetingScribe open; you may minimize it.
+10. Do not let the computer sleep.
+11. At the end, select **Stop & Create Notes**.
+12. Wait while MeetingScribe transcribes and generates notes.
+13. Review the draft carefully. AI can misunderstand names, technical terms, decisions, owners, and deadlines.
+14. Edit the notes if needed and select **Save Edited Notes**.
+
+During the meeting:
+
+- **Live transcript** fills automatically in short chunks and cannot be edited.
+- **My notes** remains editable for your own questions, reminders, and observations.
+- **AI meeting notes** appears after processing finishes.
+- Use **Clear My Notes** before starting a different meeting if you do not want to carry over text from the previous one.
 
 ## Where files are saved
 
@@ -173,7 +186,7 @@ Deleting a meeting folder removes its recording, transcript, notes, and metadata
 
 ## Open and share Markdown notes
 
-`notes.md` is ordinary text in Markdown format. It can be opened with Notepad, Visual Studio Code, Obsidian, Typora, and many other applications. After reviewing it, you can copy the text into Word, Google Docs, email, Teams, Slack, or another approved destination.
+`notes.md` and `my-notes.md` are ordinary text in Markdown format. They can be opened with Notepad, Visual Studio Code, Obsidian, Typora, and many other applications. After reviewing them, you can copy the text into Word, Google Docs, email, Teams, Slack, or another approved destination.
 
 ## Customize the note format
 

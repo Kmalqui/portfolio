@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import sys
 import threading
@@ -16,9 +17,10 @@ import soundcard as sc
 import soundfile as sf
 from faster_whisper import WhisperModel
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSplitter,
     QSpinBox,
     QStatusBar,
     QVBoxLayout,
@@ -49,10 +52,13 @@ Include:
 ## Decisions
 ## Action Items
 
-For each action item, include the owner and deadline when stated. Never invent names, dates, decisions, or tasks. If an owner or deadline is unknown, say "Not specified". Finish with:
-## Full Transcript
-Place the transcript in a fenced text code block.
+For each action item, include the owner and deadline when stated. Never invent names, dates, decisions, or tasks. If an owner or deadline is unknown, say "Not specified". Do not repeat the full transcript; MeetingScribe adds it above these organized notes.
 """
+
+
+def resource_path(relative_path: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / relative_path
 
 
 def app_data_dir() -> Path:
@@ -101,6 +107,7 @@ class Recorder(QObject):
         self._stop.clear()
         self._mic_chunks = []
         self._system_chunks = []
+        self._live_cursor = 0
         microphones = {str(d.id): d for d in self.microphones()}
         speakers = {str(d.id): d for d in self.speakers()}
         microphone = microphones[selection.microphone_id]
@@ -121,6 +128,28 @@ class Recorder(QObject):
         ]
         for thread in self._threads:
             thread.start()
+
+    def live_snapshot(self) -> tuple[np.ndarray, int] | None:
+        mic_chunks = list(self._mic_chunks)
+        system_chunks = list(self._system_chunks)
+        mic = np.concatenate(mic_chunks) if mic_chunks else np.zeros(0, np.float32)
+        system = (
+            np.concatenate(system_chunks) if system_chunks else np.zeros(0, np.float32)
+        )
+        end = max(len(mic), len(system))
+        if end - self._live_cursor < SAMPLE_RATE * 4:
+            return None
+        start = max(0, self._live_cursor - SAMPLE_RATE)
+        mic = np.pad(mic, (0, end - len(mic)))
+        system = np.pad(system, (0, end - len(system)))
+        mixed = mic[start:end] * 0.68 + system[start:end] * 0.68
+        peak = float(np.max(np.abs(mixed))) if mixed.size else 0
+        if peak > 0.98:
+            mixed *= 0.98 / peak
+        return mixed, end
+
+    def commit_live_snapshot(self, end: int) -> None:
+        self._live_cursor = end
 
     def _capture(self, device, chunks: list[np.ndarray], is_mic: bool) -> None:
         try:
@@ -162,6 +191,61 @@ class Recorder(QObject):
             mixed *= 0.98 / peak
         sf.write(destination, mixed, SAMPLE_RATE, subtype="PCM_16")
         return destination
+
+
+class LiveTranscriber(QObject):
+    text_ready = Signal(str)
+    status = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, model_name: str):
+        super().__init__()
+        self.model_name = model_name
+        self._queue: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=1)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def submit(self, audio: np.ndarray) -> bool:
+        try:
+            self._queue.put_nowait(audio)
+            return True
+        except queue.Full:
+            return False
+
+    def stop(self) -> None:
+        self._stop.set()
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass
+
+    def _run(self) -> None:
+        try:
+            self.status.emit(f"Loading Whisper {self.model_name} for live transcription…")
+            try:
+                model = WhisperModel(self.model_name, device="cuda", compute_type="float16")
+            except Exception:
+                model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+            self.status.emit("Live transcription is listening…")
+            while not self._stop.is_set():
+                audio = self._queue.get()
+                if audio is None or self._stop.is_set():
+                    break
+                audio_16k = np.ascontiguousarray(audio[::3], dtype=np.float32)
+                segments, _ = model.transcribe(
+                    audio_16k,
+                    vad_filter=True,
+                    beam_size=1,
+                    condition_on_previous_text=False,
+                )
+                text = " ".join(segment.text.strip() for segment in segments).strip()
+                if text:
+                    self.text_ready.emit(text)
+        except Exception as exc:
+            self.error.emit(f"Live transcription paused: {exc}")
 
 
 class ProcessingWorker(QObject):
@@ -228,7 +312,7 @@ class MeetingScribeWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MeetingScribe — Private Local Meeting Notes")
-        self.resize(920, 720)
+        self.resize(1000, 900)
         self.settings = QSettings("MeetingScribe", "MeetingScribe")
         self.recorder = Recorder()
         self.recorder.level.connect(self.update_levels)
@@ -238,6 +322,7 @@ class MeetingScribeWindow(QMainWindow):
         self.current_folder: Path | None = None
         self.current_audio: Path | None = None
         self.worker_thread: QThread | None = None
+        self.live_transcriber: LiveTranscriber | None = None
 
         self._build_ui()
         self.refresh_devices()
@@ -245,6 +330,9 @@ class MeetingScribeWindow(QMainWindow):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
+        self.live_timer = QTimer(self)
+        self.live_timer.setInterval(8_000)
+        self.live_timer.timeout.connect(self.request_live_transcription)
 
     def _build_ui(self):
         root = QWidget()
@@ -255,7 +343,7 @@ class MeetingScribeWindow(QMainWindow):
         title = QLabel("MeetingScribe")
         title.setFont(QFont("Segoe UI", 23, QFont.Weight.Bold))
         subtitle = QLabel(
-            "Record everyone in a meeting, transcribe locally, and create private AI notes."
+            "With permission, record a meeting, transcribe locally, and create private AI notes."
         )
         subtitle.setStyleSheet("color: #707070")
         layout.addWidget(title)
@@ -274,23 +362,74 @@ class MeetingScribeWindow(QMainWindow):
         form.addRow("Transcription quality", self.whisper_combo)
         layout.addLayout(form)
 
+        meter_help = QLabel(
+            "Audio activity — after recording starts, these panels show what MeetingScribe can hear. "
+            "Both should react while you and another participant are speaking."
+        )
+        meter_help.setWordWrap(True)
+        meter_help.setStyleSheet("color: #a9a9a9")
+        layout.addWidget(meter_help)
+
+        meter_style = (
+            "QProgressBar { min-height: 16px; border: 1px solid #666; border-radius: 5px; "
+            "background: #303030; } "
+            "QProgressBar::chunk { border-radius: 4px; background: #a8d84e; }"
+        )
         meters = QHBoxLayout()
-        meters.addWidget(QLabel("Mic"))
+
+        mic_panel = QVBoxLayout()
+        mic_panel.addWidget(QLabel("You — selected microphone"))
         self.mic_meter = QProgressBar()
         self.mic_meter.setRange(0, 100)
         self.mic_meter.setTextVisible(False)
-        meters.addWidget(self.mic_meter)
-        meters.addWidget(QLabel("Others"))
+        self.mic_meter.setStyleSheet(meter_style)
+        self.mic_meter.setToolTip("Moves when your selected microphone hears you.")
+        mic_panel.addWidget(self.mic_meter)
+        self.mic_state = QLabel("Starts listening when recording begins")
+        self.mic_state.setStyleSheet("color: #8f8f8f; font-size: 11px")
+        mic_panel.addWidget(self.mic_state)
+        meters.addLayout(mic_panel, 1)
+
+        system_panel = QVBoxLayout()
+        system_panel.addWidget(QLabel("Other people — selected meeting output"))
         self.system_meter = QProgressBar()
         self.system_meter.setRange(0, 100)
         self.system_meter.setTextVisible(False)
-        meters.addWidget(self.system_meter)
+        self.system_meter.setStyleSheet(meter_style)
+        self.system_meter.setToolTip(
+            "Moves when sound is captured from the selected meeting audio output."
+        )
+        system_panel.addWidget(self.system_meter)
+        self.system_state = QLabel("Starts listening when recording begins")
+        self.system_state.setStyleSheet("color: #8f8f8f; font-size: 11px")
+        system_panel.addWidget(self.system_state)
+        meters.addLayout(system_panel, 1)
         layout.addLayout(meters)
+
+        consent_warning = QLabel(
+            "Recording laws and workplace rules vary. Record only after informing everyone "
+            "and obtaining all permission required for this meeting."
+        )
+        consent_warning.setWordWrap(True)
+        consent_warning.setStyleSheet(
+            "padding: 9px; border: 1px solid #b8871b; background: #3a311f; color: #ffe5a3;"
+        )
+        layout.addWidget(consent_warning)
+
+        self.consent_checkbox = QCheckBox(
+            "I have informed the participants and have permission to record this meeting."
+        )
+        self.consent_checkbox.setToolTip(
+            "This acknowledgment is required before Start Recording is enabled."
+        )
+        layout.addWidget(self.consent_checkbox)
 
         controls = QHBoxLayout()
         self.record_button = QPushButton("●  Start Recording")
         self.record_button.setMinimumHeight(46)
+        self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.toggle_recording)
+        self.consent_checkbox.toggled.connect(self.record_button.setEnabled)
         self.duration = QLabel("00:00:00")
         self.duration.setFont(QFont("Consolas", 18))
         self.open_folder_button = QPushButton("Open Meeting Folder")
@@ -305,10 +444,47 @@ class MeetingScribeWindow(QMainWindow):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
+        workspace = QSplitter(Qt.Orientation.Vertical)
+
+        transcript_panel = QWidget()
+        transcript_layout = QVBoxLayout(transcript_panel)
+        transcript_layout.setContentsMargins(0, 0, 0, 0)
+        transcript_layout.addWidget(QLabel("Live transcript — automatic, read-only"))
+        self.live_transcript = QPlainTextEdit()
+        self.live_transcript.setReadOnly(True)
+        self.live_transcript.setPlaceholderText(
+            "Near-real-time transcription will appear here shortly after recording starts."
+        )
+        transcript_layout.addWidget(self.live_transcript)
+        workspace.addWidget(transcript_panel)
+
+        personal_panel = QWidget()
+        personal_layout = QVBoxLayout(personal_panel)
+        personal_layout.setContentsMargins(0, 0, 0, 0)
+        personal_header = QHBoxLayout()
+        personal_header.addWidget(QLabel("My notes — type here during the meeting"))
+        personal_header.addStretch()
+        clear_personal = QPushButton("Clear My Notes")
+        clear_personal.clicked.connect(self.clear_personal_notes)
+        personal_header.addWidget(clear_personal)
+        personal_layout.addLayout(personal_header)
+        self.personal_notes = QPlainTextEdit()
+        self.personal_notes.setPlaceholderText("Your own notes, questions, and reminders…")
+        self.personal_notes.textChanged.connect(self.save_personal_notes)
+        personal_layout.addWidget(self.personal_notes)
+        workspace.addWidget(personal_panel)
+
+        ai_panel = QWidget()
+        ai_layout = QVBoxLayout(ai_panel)
+        ai_layout.setContentsMargins(0, 0, 0, 0)
+        ai_layout.addWidget(QLabel("AI meeting notes — created after recording stops"))
         self.notes = QPlainTextEdit()
-        self.notes.setPlaceholderText("Generated meeting notes will appear here.")
+        self.notes.setPlaceholderText("The organized summary will appear here.")
         self.notes.setFont(QFont("Segoe UI", 10))
-        layout.addWidget(self.notes, 1)
+        ai_layout.addWidget(self.notes)
+        workspace.addWidget(ai_panel)
+        workspace.setSizes([230, 160, 260])
+        layout.addWidget(workspace, 1)
 
         bottom = QHBoxLayout()
         self.save_button = QPushButton("Save Edited Notes")
@@ -394,6 +570,11 @@ class MeetingScribeWindow(QMainWindow):
             self.start_recording()
 
     def start_recording(self):
+        if not self.consent_checkbox.isChecked():
+            self.show_error(
+                "Confirm that participants have been informed and that you have permission to record."
+            )
+            return
         if self.mic_combo.currentData() is None or self.speaker_combo.currentData() is None:
             self.show_error("Select both a microphone and an audio output.")
             return
@@ -405,6 +586,7 @@ class MeetingScribeWindow(QMainWindow):
         self.current_folder = default_output_dir() / stamp.strftime("%Y-%m-%d_%H-%M-%S")
         self.current_folder.mkdir(parents=True, exist_ok=True)
         self.current_audio = self.current_folder / "recording.wav"
+        self.save_personal_notes()
         selection = AudioSelection(
             str(self.mic_combo.currentData()), str(self.speaker_combo.currentData())
         )
@@ -419,8 +601,18 @@ class MeetingScribeWindow(QMainWindow):
         self.settings.setValue("ollama_model", self.model_combo.currentText())
         self.settings.setValue("whisper", self.whisper_combo.currentText())
         self.recording = True
+        self.consent_checkbox.setEnabled(False)
+        self.mic_state.setText("Listening…")
+        self.system_state.setText("Listening…")
         self.started_at = time.monotonic()
         self.timer.start(250)
+        self.live_transcript.clear()
+        self.live_transcriber = LiveTranscriber(self.whisper_combo.currentText())
+        self.live_transcriber.text_ready.connect(self.append_live_transcript)
+        self.live_transcriber.status.connect(self.status_label.setText)
+        self.live_transcriber.error.connect(self.status_label.setText)
+        self.live_transcriber.start()
+        self.live_timer.start()
         self.record_button.setText("■  Stop & Create Notes")
         self.status_label.setText("Recording microphone and meeting audio…")
         self.notes.clear()
@@ -429,6 +621,9 @@ class MeetingScribeWindow(QMainWindow):
 
     def stop_recording(self):
         self.timer.stop()
+        self.live_timer.stop()
+        if self.live_transcriber:
+            self.live_transcriber.stop()
         self.recording = False
         self.record_button.setEnabled(False)
         self.record_button.setText("Processing…")
@@ -460,8 +655,11 @@ class MeetingScribeWindow(QMainWindow):
         self._worker = worker
 
     def processing_completed(self, transcript: str, notes: str):
+        self.live_transcript.setPlainText(transcript)
         (self.current_folder / "transcript.txt").write_text(transcript, encoding="utf-8")
-        (self.current_folder / "notes.md").write_text(notes, encoding="utf-8")
+        self.save_personal_notes()
+        combined_notes = self.combined_notes(transcript, notes)
+        (self.current_folder / "notes.md").write_text(combined_notes, encoding="utf-8")
         metadata = {
             "created": datetime.now().isoformat(),
             "ollama_model": self.model_combo.currentText(),
@@ -472,22 +670,81 @@ class MeetingScribeWindow(QMainWindow):
         )
         self.notes.setPlainText(notes)
         self.status_label.setText("Complete — recording, transcript, and notes saved locally.")
-        self.record_button.setEnabled(True)
         self.record_button.setText("●  Start Recording")
+        self.consent_checkbox.setEnabled(True)
+        self.consent_checkbox.setChecked(False)
+        self.mic_state.setText("Starts listening when recording begins")
+        self.system_state.setText("Starts listening when recording begins")
         self.save_button.setEnabled(True)
         self.open_folder_button.setEnabled(True)
 
     def processing_failed(self, message: str):
-        self.record_button.setEnabled(True)
         self.record_button.setText("●  Start Recording")
+        self.consent_checkbox.setEnabled(True)
+        self.consent_checkbox.setChecked(False)
+        self.mic_state.setText("Starts listening when recording begins")
+        self.system_state.setText("Starts listening when recording begins")
         self.status_label.setText(f"Could not finish: {message}")
         self.show_error(message)
 
     def update_levels(self, mic: float, system: float):
         if mic >= 0:
             self.mic_meter.setValue(int(mic))
+            self.mic_state.setText("Sound detected ✓" if mic >= 3 else "Listening…")
         if system >= 0:
             self.system_meter.setValue(int(system))
+            self.system_state.setText(
+                "Sound detected ✓" if system >= 3 else "Listening…"
+            )
+
+    def request_live_transcription(self):
+        if not self.recording or not self.live_transcriber:
+            return
+        snapshot = self.recorder.live_snapshot()
+        if not snapshot:
+            return
+        audio, end = snapshot
+        if self.live_transcriber.submit(audio):
+            self.recorder.commit_live_snapshot(end)
+
+    def append_live_transcript(self, new_text: str):
+        existing = self.live_transcript.toPlainText().strip()
+        if not existing:
+            merged = new_text.strip()
+        else:
+            existing_words = existing.split()
+            new_words = new_text.split()
+            overlap = 0
+            limit = min(12, len(existing_words), len(new_words))
+            for size in range(limit, 0, -1):
+                left = [re.sub(r"\W+", "", w).lower() for w in existing_words[-size:]]
+                right = [re.sub(r"\W+", "", w).lower() for w in new_words[:size]]
+                if left == right:
+                    overlap = size
+                    break
+            merged = " ".join(existing_words + new_words[overlap:])
+        self.live_transcript.setPlainText(merged)
+        scrollbar = self.live_transcript.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def clear_personal_notes(self):
+        self.personal_notes.clear()
+
+    def save_personal_notes(self):
+        if self.current_folder:
+            (self.current_folder / "my-notes.md").write_text(
+                self.personal_notes.toPlainText(), encoding="utf-8"
+            )
+
+    @staticmethod
+    def combined_notes(transcript: str, ai_notes: str) -> str:
+        return (
+            "# Transcript\n\n```text\n"
+            + transcript.strip()
+            + "\n```\n\n---\n\n"
+            + ai_notes.strip()
+            + "\n"
+        )
 
     def update_timer(self):
         elapsed = int(time.monotonic() - self.started_at)
@@ -499,8 +756,12 @@ class MeetingScribeWindow(QMainWindow):
         if not self.current_folder:
             return
         (self.current_folder / "notes.md").write_text(
-            self.notes.toPlainText(), encoding="utf-8"
+            self.combined_notes(
+                self.live_transcript.toPlainText(), self.notes.toPlainText()
+            ),
+            encoding="utf-8",
         )
+        self.save_personal_notes()
         self.status_label.setText("Edited notes saved.")
 
     def open_meeting_folder(self):
@@ -549,6 +810,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(QIcon(str(resource_path("assets/meetingscribe-icon.png"))))
     app.setStyle("Fusion")
     window = MeetingScribeWindow()
     window.show()
