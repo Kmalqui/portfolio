@@ -16,13 +16,14 @@ import requests
 import soundcard as sc
 import soundfile as sf
 from faster_whisper import WhisperModel
-from PySide6.QtCore import QObject, QSettings, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QIcon
+from PySide6.QtCore import QObject, QSettings, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSplitter,
     QSpinBox,
     QStatusBar,
@@ -40,8 +43,142 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
+APP_VERSION = "0.3.0-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
+APP_STYLESHEET = """
+QWidget { color: #173329; font-family: "Segoe UI"; font-size: 13px; }
+QMainWindow, QWidget#appRoot {
+    background: #f3f6ef;
+    color: #173329;
+    font-family: "Segoe UI";
+    font-size: 13px;
+}
+QLabel#brandTitle { color: #102a22; font-size: 28px; font-weight: 800; }
+QLabel#brandSubtitle { color: #607269; font-size: 13px; }
+QLabel#sectionTitle { color: #173329; font-size: 15px; font-weight: 700; }
+QLabel#sectionHint, QLabel#meterState { color: #718078; font-size: 11px; }
+QLabel#fieldLabel { color: #42564d; font-weight: 600; }
+QFrame#card, QFrame#workspaceCard {
+    background: #ffffff;
+    border: 1px solid #dce5dc;
+    border-radius: 14px;
+}
+QFrame#meterPanel {
+    background: #f7faf5;
+    border: 1px solid #dce5dc;
+    border-radius: 10px;
+}
+QFrame#consentCard {
+    background: #fff8e8;
+    border: 1px solid #ead39a;
+    border-radius: 12px;
+}
+QLabel#consentTitle { color: #765612; font-weight: 700; }
+QComboBox, QSpinBox {
+    min-height: 34px;
+    padding: 2px 10px;
+    border: 1px solid #cdd8cf;
+    border-radius: 8px;
+    background: #fbfdf9;
+    selection-background-color: #9fca3d;
+    color: #173329;
+}
+QComboBox:hover, QComboBox:focus, QSpinBox:hover, QSpinBox:focus {
+    border-color: #789c2d;
+}
+QPlainTextEdit {
+    padding: 10px;
+    border: 1px solid #d5dfd7;
+    border-radius: 9px;
+    background: #fbfcfa;
+    color: #20362e;
+    selection-background-color: #cfe993;
+}
+QPlainTextEdit:focus { border-color: #82aa31; background: #ffffff; }
+QPushButton {
+    min-height: 34px;
+    padding: 4px 14px;
+    border: 1px solid #c9d4cb;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #214438;
+    font-weight: 600;
+}
+QPushButton:hover { background: #edf5e3; border-color: #96b65b; }
+QPushButton:pressed { background: #e0edce; }
+QPushButton:disabled { color: #9aa69f; background: #eef1ed; border-color: #dde3dd; }
+QPushButton#recordButton {
+    min-height: 48px;
+    border: none;
+    border-radius: 11px;
+    background: #9fca3d;
+    color: #102a22;
+    font-size: 15px;
+    font-weight: 800;
+}
+QPushButton#recordButton:hover { background: #aed94c; }
+QPushButton#recordButton:disabled { background: #e0e9cf; color: #738365; }
+QPushButton#recordButton[recording="true"] { background: #dc5b55; color: #ffffff; }
+QPushButton#recordButton[processing="true"] { background: #315c4d; color: #ffffff; }
+QLabel#timer {
+    min-width: 112px;
+    padding: 8px 12px;
+    border: 1px solid #d8e1d9;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #173329;
+    font-size: 19px;
+    font-weight: 700;
+}
+QLabel#statusPill {
+    padding: 8px 12px;
+    border-radius: 9px;
+    background: #e9f3df;
+    color: #345d25;
+    font-weight: 600;
+}
+QProgressBar {
+    min-height: 13px;
+    max-height: 13px;
+    border: none;
+    border-radius: 6px;
+    background: #dfe7df;
+}
+QProgressBar::chunk { border-radius: 6px; background: #8fbd35; }
+QCheckBox { spacing: 9px; color: #5d4919; font-weight: 600; }
+QCheckBox::indicator { width: 18px; height: 18px; }
+QSplitter::handle { height: 8px; background: transparent; }
+QStatusBar { background: #f3f6ef; color: #718078; }
+"""
+
+
+def apply_theme(app: QApplication) -> None:
+    """Use a consistent light palette, including native menus and checkboxes."""
+    app.setStyle("Fusion")
+    palette = QPalette()
+    for role, color in (
+        (QPalette.ColorRole.Window, "#f3f6ef"),
+        (QPalette.ColorRole.WindowText, "#173329"),
+        (QPalette.ColorRole.Base, "#ffffff"),
+        (QPalette.ColorRole.AlternateBase, "#f7faf5"),
+        (QPalette.ColorRole.Text, "#20362e"),
+        (QPalette.ColorRole.Button, "#ffffff"),
+        (QPalette.ColorRole.ButtonText, "#214438"),
+        (QPalette.ColorRole.Highlight, "#cfe993"),
+        (QPalette.ColorRole.HighlightedText, "#173329"),
+        (QPalette.ColorRole.PlaceholderText, "#718078"),
+        (QPalette.ColorRole.ToolTipBase, "#ffffff"),
+        (QPalette.ColorRole.ToolTipText, "#173329"),
+    ):
+        palette.setColor(role, QColor(color))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#87958c"))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor("#87958c"))
+    app.setPalette(palette)
+    app.setFont(QFont("Segoe UI", 10))
+    app.setStyleSheet(APP_STYLESHEET)
+
+
 DEFAULT_PROMPT = """You are an expert meeting-note assistant. Convert the transcript into clean Markdown.
 
 Include:
@@ -308,6 +445,14 @@ class ProcessingWorker(QObject):
             self.failed.emit(str(exc))
 
 
+class NotesEditor(QPlainTextEdit):
+    def sizeHint(self):
+        return QSize(320, 80)
+
+    def minimumSizeHint(self):
+        return QSize(160, 80)
+
+
 class MeetingScribeWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -336,101 +481,182 @@ class MeetingScribeWindow(QMainWindow):
 
     def _build_ui(self):
         root = QWidget()
+        root.setObjectName("appRoot")
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(26, 22, 26, 20)
+        layout.setSpacing(12)
 
+        header = QHBoxLayout()
+        header.setSpacing(13)
+        brand_icon = QLabel()
+        brand_icon.setPixmap(
+            QIcon(str(resource_path("assets/meetingscribe-icon.png"))).pixmap(58, 58)
+        )
+        brand_icon.setFixedSize(62, 62)
+        brand_copy = QVBoxLayout()
+        brand_copy.setSpacing(1)
         title = QLabel("MeetingScribe")
-        title.setFont(QFont("Segoe UI", 23, QFont.Weight.Bold))
+        title.setObjectName("brandTitle")
         subtitle = QLabel(
             "With permission, record a meeting, transcribe locally, and create private AI notes."
         )
-        subtitle.setStyleSheet("color: #707070")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        subtitle.setObjectName("brandSubtitle")
+        subtitle.setWordWrap(True)
+        brand_copy.addWidget(title)
+        brand_copy.addWidget(subtitle)
+        header.addWidget(brand_icon)
+        header.addLayout(brand_copy, 1)
+        privacy_badge = QLabel("PRIVATE • LOCAL AI")
+        privacy_badge.setStyleSheet(
+            "padding: 7px 11px; border-radius: 10px; background: #dff0bb; "
+            "color: #375a22; font-size: 10px; font-weight: 800;"
+        )
+        header.addWidget(privacy_badge, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(header)
+
+        setup_card = QFrame()
+        setup_card.setObjectName("card")
+        setup_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        setup_layout = QVBoxLayout(setup_card)
+        setup_layout.setContentsMargins(16, 13, 16, 15)
+        setup_layout.setSpacing(10)
+        setup_title = QLabel("1  Choose what MeetingScribe should hear")
+        setup_title.setObjectName("sectionTitle")
+        setup_hint = QLabel(
+            "Your microphone captures you. Meeting audio output captures everyone you hear."
+        )
+        setup_hint.setObjectName("sectionHint")
+        setup_hint.setWordWrap(True)
+        setup_layout.addWidget(setup_title)
+        setup_layout.addWidget(setup_hint)
 
         form = QFormLayout()
+        form.setHorizontalSpacing(18)
+        form.setVerticalSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.mic_combo = QComboBox()
         self.speaker_combo = QComboBox()
         self.model_combo = QComboBox()
         self.whisper_combo = QComboBox()
         self.whisper_combo.addItems(["small", "medium", "large-v3"])
         self.whisper_combo.setCurrentText(self.settings.value("whisper", "small"))
-        form.addRow("Your microphone", self.mic_combo)
-        form.addRow("Meeting audio output", self.speaker_combo)
-        form.addRow("Ollama model", self.model_combo)
-        form.addRow("Transcription quality", self.whisper_combo)
-        layout.addLayout(form)
+        for combo in (
+            self.mic_combo,
+            self.speaker_combo,
+            self.model_combo,
+            self.whisper_combo,
+        ):
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(16)
+            combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for label_text, control in (
+            ("Your microphone", self.mic_combo),
+            ("Meeting audio output", self.speaker_combo),
+            ("Local AI model", self.model_combo),
+            ("Transcription quality", self.whisper_combo),
+        ):
+            label = QLabel(label_text)
+            label.setObjectName("fieldLabel")
+            form.addRow(label, control)
+        setup_layout.addLayout(form)
 
-        meter_help = QLabel(
-            "Audio activity — after recording starts, these panels show what MeetingScribe can hear. "
-            "Both should react while you and another participant are speaking."
-        )
+        audio_card = QFrame()
+        audio_card.setObjectName("card")
+        audio_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        audio_layout = QVBoxLayout(audio_card)
+        audio_layout.setContentsMargins(16, 13, 16, 14)
+        audio_layout.setSpacing(9)
+        audio_title = QLabel("2  Check the audio activity")
+        audio_title.setObjectName("sectionTitle")
+        meter_help = QLabel("The bars move once recording starts. Both should react during conversation.")
+        meter_help.setObjectName("sectionHint")
         meter_help.setWordWrap(True)
-        meter_help.setStyleSheet("color: #a9a9a9")
-        layout.addWidget(meter_help)
-
-        meter_style = (
-            "QProgressBar { min-height: 16px; border: 1px solid #666; border-radius: 5px; "
-            "background: #303030; } "
-            "QProgressBar::chunk { border-radius: 4px; background: #a8d84e; }"
-        )
+        audio_layout.addWidget(audio_title)
+        audio_layout.addWidget(meter_help)
         meters = QHBoxLayout()
+        meters.setSpacing(12)
 
-        mic_panel = QVBoxLayout()
-        mic_panel.addWidget(QLabel("You — selected microphone"))
+        mic_box = QFrame()
+        mic_box.setObjectName("meterPanel")
+        mic_panel = QVBoxLayout(mic_box)
+        mic_panel.setContentsMargins(12, 9, 12, 9)
+        mic_label = QLabel("YOU  •  MICROPHONE")
+        mic_label.setObjectName("fieldLabel")
+        mic_panel.addWidget(mic_label)
         self.mic_meter = QProgressBar()
         self.mic_meter.setRange(0, 100)
         self.mic_meter.setTextVisible(False)
-        self.mic_meter.setStyleSheet(meter_style)
         self.mic_meter.setToolTip("Moves when your selected microphone hears you.")
         mic_panel.addWidget(self.mic_meter)
         self.mic_state = QLabel("Starts listening when recording begins")
-        self.mic_state.setStyleSheet("color: #8f8f8f; font-size: 11px")
+        self.mic_state.setObjectName("meterState")
+        self.mic_state.setWordWrap(True)
         mic_panel.addWidget(self.mic_state)
-        meters.addLayout(mic_panel, 1)
+        meters.addWidget(mic_box, 1)
 
-        system_panel = QVBoxLayout()
-        system_panel.addWidget(QLabel("Other people — selected meeting output"))
+        system_box = QFrame()
+        system_box.setObjectName("meterPanel")
+        system_panel = QVBoxLayout(system_box)
+        system_panel.setContentsMargins(12, 9, 12, 9)
+        system_label = QLabel("OTHERS  •  MEETING AUDIO")
+        system_label.setObjectName("fieldLabel")
+        system_panel.addWidget(system_label)
         self.system_meter = QProgressBar()
         self.system_meter.setRange(0, 100)
         self.system_meter.setTextVisible(False)
-        self.system_meter.setStyleSheet(meter_style)
         self.system_meter.setToolTip(
             "Moves when sound is captured from the selected meeting audio output."
         )
         system_panel.addWidget(self.system_meter)
         self.system_state = QLabel("Starts listening when recording begins")
-        self.system_state.setStyleSheet("color: #8f8f8f; font-size: 11px")
+        self.system_state.setObjectName("meterState")
+        self.system_state.setWordWrap(True)
         system_panel.addWidget(self.system_state)
-        meters.addLayout(system_panel, 1)
-        layout.addLayout(meters)
+        meters.addWidget(system_box, 1)
+        audio_layout.addLayout(meters)
 
-        consent_warning = QLabel(
-            "Recording laws and workplace rules vary. Record only after informing everyone "
-            "and obtaining all permission required for this meeting."
-        )
+        consent_card = QFrame()
+        consent_card.setObjectName("consentCard")
+        consent_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        consent_layout = QVBoxLayout(consent_card)
+        consent_layout.setContentsMargins(14, 10, 14, 11)
+        consent_layout.setSpacing(6)
+        consent_title = QLabel("Permission comes first")
+        consent_title.setObjectName("consentTitle")
+        consent_warning = QLabel("Recording rules vary. Inform everyone and get all required permission before you begin.")
         consent_warning.setWordWrap(True)
-        consent_warning.setStyleSheet(
-            "padding: 9px; border: 1px solid #b8871b; background: #3a311f; color: #ffe5a3;"
-        )
-        layout.addWidget(consent_warning)
-
         self.consent_checkbox = QCheckBox(
-            "I have informed the participants and have permission to record this meeting."
+            "I have permission to record this meeting."
         )
         self.consent_checkbox.setToolTip(
             "This acknowledgment is required before Start Recording is enabled."
         )
-        layout.addWidget(self.consent_checkbox)
+        consent_layout.addWidget(consent_title)
+        consent_layout.addWidget(consent_warning)
+        consent_layout.addWidget(self.consent_checkbox)
+
+        overview = QHBoxLayout()
+        overview.setSpacing(12)
+        overview.addWidget(setup_card, 1)
+        readiness = QVBoxLayout()
+        readiness.setSpacing(10)
+        readiness.addWidget(audio_card)
+        readiness.addWidget(consent_card)
+        overview.addLayout(readiness, 1)
+        layout.addLayout(overview)
 
         controls = QHBoxLayout()
+        controls.setSpacing(10)
         self.record_button = QPushButton("●  Start Recording")
-        self.record_button.setMinimumHeight(46)
+        self.record_button.setObjectName("recordButton")
         self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.toggle_recording)
         self.consent_checkbox.toggled.connect(self.record_button.setEnabled)
         self.duration = QLabel("00:00:00")
+        self.duration.setObjectName("timer")
+        self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
         self.open_folder_button = QPushButton("Open Meeting Folder")
         self.open_folder_button.clicked.connect(self.open_meeting_folder)
@@ -441,58 +667,77 @@ class MeetingScribeWindow(QMainWindow):
         layout.addLayout(controls)
 
         self.status_label = QLabel("Ready — audio never leaves this computer.")
+        self.status_label.setObjectName("statusPill")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
         workspace = QSplitter(Qt.Orientation.Vertical)
 
-        transcript_panel = QWidget()
+        transcript_panel = QFrame()
+        transcript_panel.setObjectName("workspaceCard")
+        transcript_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         transcript_layout = QVBoxLayout(transcript_panel)
-        transcript_layout.setContentsMargins(0, 0, 0, 0)
-        transcript_layout.addWidget(QLabel("Live transcript — automatic, read-only"))
-        self.live_transcript = QPlainTextEdit()
+        transcript_layout.setContentsMargins(13, 10, 13, 13)
+        transcript_label = QLabel("LIVE TRANSCRIPT  •  AUTOMATIC AND READ-ONLY")
+        transcript_label.setObjectName("fieldLabel")
+        transcript_layout.addWidget(transcript_label)
+        transcript_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.live_transcript = NotesEditor()
         self.live_transcript.setReadOnly(True)
         self.live_transcript.setPlaceholderText(
             "Near-real-time transcription will appear here shortly after recording starts."
         )
-        transcript_layout.addWidget(self.live_transcript)
+        transcript_layout.addWidget(self.live_transcript, 1)
         workspace.addWidget(transcript_panel)
 
-        personal_panel = QWidget()
+        personal_panel = QFrame()
+        personal_panel.setObjectName("workspaceCard")
+        personal_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         personal_layout = QVBoxLayout(personal_panel)
-        personal_layout.setContentsMargins(0, 0, 0, 0)
+        personal_layout.setContentsMargins(13, 10, 13, 13)
         personal_header = QHBoxLayout()
-        personal_header.addWidget(QLabel("My notes — type here during the meeting"))
+        personal_label = QLabel("MY NOTES  •  TYPE WHILE YOU LISTEN")
+        personal_label.setObjectName("fieldLabel")
+        personal_header.addWidget(personal_label)
         personal_header.addStretch()
         clear_personal = QPushButton("Clear My Notes")
         clear_personal.clicked.connect(self.clear_personal_notes)
         personal_header.addWidget(clear_personal)
         personal_layout.addLayout(personal_header)
-        self.personal_notes = QPlainTextEdit()
+        self.personal_notes = NotesEditor()
         self.personal_notes.setPlaceholderText("Your own notes, questions, and reminders…")
         self.personal_notes.textChanged.connect(self.save_personal_notes)
-        personal_layout.addWidget(self.personal_notes)
-        workspace.addWidget(personal_panel)
+        personal_layout.addWidget(self.personal_notes, 1)
+        notes_splitter = QSplitter(Qt.Orientation.Horizontal)
+        notes_splitter.addWidget(personal_panel)
 
-        ai_panel = QWidget()
+        ai_panel = QFrame()
+        ai_panel.setObjectName("workspaceCard")
+        ai_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         ai_layout = QVBoxLayout(ai_panel)
-        ai_layout.setContentsMargins(0, 0, 0, 0)
-        ai_layout.addWidget(QLabel("AI meeting notes — created after recording stops"))
-        self.notes = QPlainTextEdit()
+        ai_layout.setContentsMargins(13, 10, 13, 13)
+        ai_label = QLabel("ORGANIZED MEETING NOTES  •  CREATED AFTER RECORDING")
+        ai_label.setObjectName("fieldLabel")
+        ai_label.setWordWrap(True)
+        ai_layout.addWidget(ai_label)
+        ai_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.notes = NotesEditor()
         self.notes.setPlaceholderText("The organized summary will appear here.")
         self.notes.setFont(QFont("Segoe UI", 10))
-        ai_layout.addWidget(self.notes)
-        workspace.addWidget(ai_panel)
-        workspace.setSizes([230, 160, 260])
+        ai_layout.addWidget(self.notes, 1)
+        notes_splitter.addWidget(ai_panel)
+        notes_splitter.setSizes([470, 470])
+        workspace.addWidget(notes_splitter)
+        workspace.setSizes([250, 270])
         layout.addWidget(workspace, 1)
 
         bottom = QHBoxLayout()
-        self.save_button = QPushButton("Save Edited Notes")
+        self.save_button = QPushButton("Save Notes")
         self.save_button.clicked.connect(self.save_notes)
         self.save_button.setEnabled(False)
-        self.template_button = QPushButton("Edit Note Template")
+        self.template_button = QPushButton("Customize Summary")
         self.template_button.clicked.connect(self.edit_template)
-        refresh_button = QPushButton("Refresh Devices & Models")
+        refresh_button = QPushButton("Refresh Devices")
         refresh_button.clicked.connect(self.refresh_all)
         bottom.addWidget(self.save_button)
         bottom.addWidget(self.template_button)
@@ -500,8 +745,24 @@ class MeetingScribeWindow(QMainWindow):
         bottom.addWidget(refresh_button)
         layout.addLayout(bottom)
 
-        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(root)
+        self.setCentralWidget(scroll)
         self.setStatusBar(QStatusBar())
+
+    def _set_record_button_state(self, state: str):
+        labels = {
+            "idle": "●  Start Recording",
+            "recording": "■  Stop & Create Notes",
+            "processing": "Creating your notes…",
+        }
+        self.record_button.setText(labels[state])
+        self.record_button.setProperty("recording", state == "recording")
+        self.record_button.setProperty("processing", state == "processing")
+        self.record_button.style().unpolish(self.record_button)
+        self.record_button.style().polish(self.record_button)
 
     def refresh_all(self):
         self.refresh_devices()
@@ -613,7 +874,7 @@ class MeetingScribeWindow(QMainWindow):
         self.live_transcriber.error.connect(self.status_label.setText)
         self.live_transcriber.start()
         self.live_timer.start()
-        self.record_button.setText("■  Stop & Create Notes")
+        self._set_record_button_state("recording")
         self.status_label.setText("Recording microphone and meeting audio…")
         self.notes.clear()
         self.save_button.setEnabled(False)
@@ -626,7 +887,7 @@ class MeetingScribeWindow(QMainWindow):
             self.live_transcriber.stop()
         self.recording = False
         self.record_button.setEnabled(False)
-        self.record_button.setText("Processing…")
+        self._set_record_button_state("processing")
         try:
             self.recorder.stop(self.current_audio)
         except Exception as exc:
@@ -670,7 +931,7 @@ class MeetingScribeWindow(QMainWindow):
         )
         self.notes.setPlainText(notes)
         self.status_label.setText("Complete — recording, transcript, and notes saved locally.")
-        self.record_button.setText("●  Start Recording")
+        self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
         self.consent_checkbox.setChecked(False)
         self.mic_state.setText("Starts listening when recording begins")
@@ -679,7 +940,7 @@ class MeetingScribeWindow(QMainWindow):
         self.open_folder_button.setEnabled(True)
 
     def processing_failed(self, message: str):
-        self.record_button.setText("●  Start Recording")
+        self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
         self.consent_checkbox.setChecked(False)
         self.mic_state.setText("Starts listening when recording begins")
@@ -808,14 +1069,41 @@ def main():
         WhisperModel("small", device="cpu", compute_type="int8")
         return
 
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "MeetingScribe.MeetingScribe.0.3"
+            )
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setWindowIcon(QIcon(str(resource_path("assets/meetingscribe-icon.png"))))
-    app.setStyle("Fusion")
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName("MeetingScribe")
+    icon_path = resource_path("assets/meetingscribe-icon.ico")
+    if not icon_path.exists():
+        icon_path = resource_path("assets/meetingscribe-icon.png")
+    app_icon = QIcon(str(icon_path))
+    app.setWindowIcon(app_icon)
+    apply_theme(app)
     window = MeetingScribeWindow()
+    window.setWindowIcon(app_icon)
+    if "--smoke-test" in sys.argv:
+        # Exercise frozen imports, the real platform UI, and bundled assets
+        # without opening a window, recording audio, or downloading models.
+        window.ensurePolished()
+        app.processEvents()
+        valid = not app_icon.isNull() and resource_path("assets/meetingscribe-icon.png").is_file()
+        window.close()
+        return 0 if valid else 1
+    available = app.primaryScreen().availableGeometry()
+    window.resize(min(1100, available.width() - 60), min(900, available.height() - 70))
     window.show()
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

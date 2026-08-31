@@ -9,7 +9,10 @@ for package in ('soundcard', 'soundfile', 'ctranslate2', 'tokenizers', 'huggingf
     binaries += b
     hiddenimports += h
 
-datas += [('assets/meetingscribe-icon.png', 'assets')]
+datas += [
+    ('assets/meetingscribe-icon.png', 'assets'),
+    ('assets/meetingscribe-icon.ico', 'assets'),
+]
 
 a = Analysis(
     ['app.py'],

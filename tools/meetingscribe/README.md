@@ -4,6 +4,23 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
+## New in 0.3.0 beta
+
+- A cream-and-green interface with grouped setup cards and clear audio activity panels.
+- A transcript across the top, with your personal notes and the organized summary side by side underneath. Drag the dividers to adjust their sizes.
+- Distinct ready, recording, and processing button styles, plus scrolling on smaller screens.
+- The ear-and-notepad icon on the installer, application, desktop shortcut, and Start-menu shortcut.
+
+### Updating an existing installation
+
+1. Finish any active meeting and close MeetingScribe.
+2. Run the new 0.3.0 installer. Use the same installation folder as before.
+3. Open MeetingScribe using the new desktop or Start-menu shortcut.
+
+Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
+
+If a pinned taskbar shortcut still shows the old icon, unpin it, open the updated app from Start, then pin that running app again. The new installer uses a separate icon file so newly created shortcuts do not depend on the old executable icon cache. You do not need to delete Windows icon-cache files.
+
 ## What MeetingScribe creates
 
 After each meeting, MeetingScribe creates a folder containing:
@@ -37,7 +54,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.0-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
@@ -95,7 +112,7 @@ Under **Meeting audio output**, select the device through which you hear other p
 
 If you change headphones or speakers during a meeting, stop the recording, select the new output, and start a new recording.
 
-### Ollama model
+### Local AI model (Ollama)
 
 Select `qwen3:4b`, which the one-click installer downloads automatically.
 
@@ -103,7 +120,7 @@ If the list says **Ollama is not running**:
 
 1. Open Ollama from the Start menu.
 2. Wait ten seconds.
-3. Return to MeetingScribe and select **Refresh Devices & Models**.
+3. Return to MeetingScribe and select **Refresh Devices**.
 
 If it says **Install a model with Ollama**, follow the model-installation instructions in Part 1.
 
@@ -157,7 +174,7 @@ Do not record an important meeting unless both meters move during the test.
 11. At the end, select **Stop & Create Notes**.
 12. Wait while MeetingScribe transcribes and generates notes.
 13. Review the draft carefully. AI can misunderstand names, technical terms, decisions, owners, and deadlines.
-14. Edit the notes if needed and select **Save Edited Notes**.
+14. Edit the notes if needed and select **Save Notes**.
 
 During the meeting:
 
@@ -190,7 +207,7 @@ Deleting a meeting folder removes its recording, transcript, notes, and metadata
 
 ## Customize the note format
 
-1. Select **Edit Note Template**.
+1. Select **Customize Summary**.
 2. MeetingScribe shows its template-file location.
 3. Edit and save the instructions.
 4. Select the saved template when asked.
@@ -206,7 +223,7 @@ Useful instructions might request risks and blockers, separate customer question
 - Check **Windows Settings → Privacy & security → Microphone**.
 - Close other audio tools that may control the device.
 - Reopen MeetingScribe after connecting a new headset.
-- Select **Refresh Devices & Models**.
+- Select **Refresh Devices**.
 
 ### The Others meter does not move
 
@@ -230,7 +247,7 @@ Return to the test procedure and verify both meters move. Restart MeetingScribe 
 
 ### Ollama is not running
 
-Open Ollama from Start, wait ten seconds, and select **Refresh Devices & Models**. Restart Windows if necessary.
+Open Ollama from Start, wait ten seconds, and select **Refresh Devices**. Restart Windows if necessary.
 
 ### No Ollama models appear
 
@@ -292,7 +309,7 @@ Open Windows Terminal and run the same pull command again, for example:
 ollama pull qwen3:8b
 ```
 
-Restart MeetingScribe and select **Refresh Devices & Models**.
+Restart MeetingScribe and select **Refresh Devices**.
 
 ## Uninstalling MeetingScribe
 
@@ -331,3 +348,15 @@ AI-generated notes are a draft, not an authoritative record.
 ## License
 
 MeetingScribe is distributed under the MIT License. See `LICENSE.txt`.
+
+## For developers: interface checks
+
+With the dependencies in `requirements.txt` installed, run this from the MeetingScribe source folder:
+
+```text
+python -m unittest discover -s tests -v
+```
+
+The checks exercise consent gating, recording-button states, the audio meters, separate transcript and personal-note fields, small-window scrolling, and the multi-size icon. They do not record audio, download models, or replace a real meeting test.
+
+After building with PyInstaller, `MeetingScribe.exe --smoke-test` checks startup and bundled icons without opening the recorder window. A zero exit code means the startup check passed.
