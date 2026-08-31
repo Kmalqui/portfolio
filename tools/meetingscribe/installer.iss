@@ -1,5 +1,5 @@
 #define MyAppName "MeetingScribe"
-#define MyAppVersion "0.2.1-beta"
+#define MyAppVersion "0.3.0-beta"
 #define MyAppPublisher "MeetingScribe Community Beta"
 #define MyAppExeName "MeetingScribe.exe"
 
@@ -12,13 +12,14 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
 OutputDir=installer-output
-OutputBaseFilename=MeetingScribe-0.2.1-beta-One-Click-Windows-Setup
+OutputBaseFilename=MeetingScribe-0.3.0-beta-One-Click-Windows-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=assets\meetingscribe-icon.ico
+UninstallDisplayIcon={app}\MeetingScribe-0.3.ico
 LicenseFile=LICENSE.txt
 InfoBeforeFile=README.md
 
@@ -26,10 +27,11 @@ InfoBeforeFile=README.md
 Source: "dist\MeetingScribe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\meetingscribe-icon.ico"; DestDir: "{app}"; DestName: "MeetingScribe-0.3.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\MeetingScribe"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\MeetingScribe"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\MeetingScribe"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\MeetingScribe-0.3.ico"; AppUserModelID: "MeetingScribe.MeetingScribe.0.3"
+Name: "{autodesktop}\MeetingScribe"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\MeetingScribe-0.3.ico"; AppUserModelID: "MeetingScribe.MeetingScribe.0.3"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch MeetingScribe"; Flags: nowait postinstall skipifsilent; Check: DependenciesAreReady

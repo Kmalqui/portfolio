@@ -8,7 +8,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 
 | Tool | What it does | Source | Download |
 |---|---|---|---|
-| MeetingScribe | Records permitted microphone and Windows meeting audio, transcribes locally with Whisper, and creates private Markdown notes with Ollama | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.2.1-beta/MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe) |
+| MeetingScribe | Records permitted microphone and Windows meeting audio, transcribes locally with Whisper, and creates private Markdown notes with Ollama | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.3.0-beta/MeetingScribe-0.3.0-beta-One-Click-Windows-Setup.exe) |
 
 ## Browser extensions
 
