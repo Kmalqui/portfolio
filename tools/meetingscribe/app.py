@@ -16,7 +16,7 @@ import requests
 import soundcard as sc
 import soundfile as sf
 from faster_whisper import WhisperModel
-from PySide6.QtCore import QObject, QSettings, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.0-beta"
+APP_VERSION = "0.3.1-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 APP_STYLESHEET = """
@@ -204,9 +204,10 @@ def app_data_dir() -> Path:
     return root
 
 
-def default_output_dir() -> Path:
+def default_output_dir(create: bool = True) -> Path:
     root = Path.home() / "Documents" / "Meeting Notes"
-    root.mkdir(parents=True, exist_ok=True)
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -737,10 +738,16 @@ class MeetingScribeWindow(QMainWindow):
         self.save_button.setEnabled(False)
         self.template_button = QPushButton("Customize Summary")
         self.template_button.clicked.connect(self.edit_template)
+        self.saved_meetings_button = QPushButton("Open Saved Meetings")
+        self.saved_meetings_button.setToolTip(
+            "Open all dated meeting folders, including notes from previous sessions."
+        )
+        self.saved_meetings_button.clicked.connect(self.open_saved_meetings)
         refresh_button = QPushButton("Refresh Devices")
         refresh_button.clicked.connect(self.refresh_all)
         bottom.addWidget(self.save_button)
         bottom.addWidget(self.template_button)
+        bottom.addWidget(self.saved_meetings_button)
         bottom.addStretch()
         bottom.addWidget(refresh_button)
         layout.addLayout(bottom)
@@ -751,6 +758,12 @@ class MeetingScribeWindow(QMainWindow):
         scroll.setWidget(root)
         self.setCentralWidget(scroll)
         self.setStatusBar(QStatusBar())
+        self.save_location_label = QLabel(f"Saved in: {default_output_dir(create=False)}")
+        self.save_location_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.save_location_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.save_location_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.save_location_label.setToolTip(self.save_location_label.text())
+        self.statusBar().addWidget(self.save_location_label, 1)
 
     def _set_record_button_state(self, state: str):
         labels = {
@@ -1027,7 +1040,22 @@ class MeetingScribeWindow(QMainWindow):
 
     def open_meeting_folder(self):
         if self.current_folder:
-            QDesktopServices.openUrl(self.current_folder.as_uri())
+            self._open_folder(self.current_folder)
+
+    def open_saved_meetings(self):
+        try:
+            folder = default_output_dir()
+        except OSError as exc:
+            self.show_error(f"Could not access the saved meetings folder: {exc}")
+            return
+        self._open_folder(folder)
+
+    def _open_folder(self, folder: Path):
+        if not folder.is_dir():
+            self.show_error(f"This folder is no longer available:\n\n{folder}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder.resolve()))):
+            self.show_error(f"Could not open the folder. You can open it manually:\n\n{folder}")
 
     def edit_template(self):
         path = app_data_dir() / "note-template.txt"
