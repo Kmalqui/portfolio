@@ -4,7 +4,43 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
-## New in 0.3.1 beta
+## New in 0.3.5 beta — optional voice clarity
+
+Before recording, select **Voice clarity…** beside the audio meters. Cleanup is off by default and changes only MeetingScribe's saved audio and transcription input—not your microphone in other applications.
+
+- **Reduce quiet background noise** gently lowers sound below your chosen threshold. This helps between speech, but does not remove fan noise mixed with a voice. It is not Krisp, AI voice isolation, or echo cancellation.
+- **Automatically level voice volume** gently adjusts loudness, with amplification limited to 3×.
+- **Quiet-sound threshold** starts at −50 dB. Lower it toward −65 dB to preserve softer voices; higher values can also soften quiet speech. Make a short test before using it for an important meeting.
+- **Also clean up meeting audio** is optional. Leave it off if your meeting software already processes other participants' voices.
+- Turn both cleanup options off for unprocessed audio. Settings are remembered and cannot be changed during recording.
+
+When cleanup is enabled, `recording.wav` contains the processed mix used for transcription. Separate `microphone-original.wav` and `meeting-audio-original.wav` files preserve the unprocessed inputs. They are streamed to disk rather than held in extra memory buffers; together they use about 660 MiB per hour in addition to the mixed recording. Keep those originals if the cleanup softened something you needed. There is no in-app reprocessing button yet. `audio-settings.json` records the settings used.
+
+The meters show input activity before cleanup. A quiet-input notice appears after ten seconds without detected sound; silence is normal when nobody is talking, and this notice does not stop recording.
+
+## Introduced in 0.3.4 beta
+
+The top-right **Dark mode** switch replaces the appearance dropdown. Purple with the knob on the right means dark mode is on; gray with the knob on the left means light mode. Click it, or focus it with Tab and press Space. Your preference is remembered.
+
+## Introduced in 0.3.3 beta
+
+The live transcript now defaults to **Eco — lowest load**. It uses a tiny, lower-accuracy preview model with two CPU inference threads and checks for new audio every 12 seconds. The final transcript still uses your selected **Transcription quality**, so reducing preview load does not change the final processing settings.
+
+The dropdown above the live transcript also offers **Balanced — clearer preview** (a small model, graphics acceleration where available, four CPU inference threads on fallback) and **Off — final transcript only**. Choose before recording; your preference is remembered. Eco may be less accurate, especially with names or noisy audio. Updates can lag on slower computers, but the full recording is transcribed again after stopping.
+
+Live updates copy at most 13 seconds of audio, including overlap, rather than repeatedly copying the whole meeting. No new preview is queued while the previous one is running, and final transcription waits for the preview worker to finish so the two models do not compete. The full recording is still held in memory until you stop; this update reduces preview overhead, not all memory use during long meetings.
+
+Setup also downloads the tiny preview model, so upgrades require an internet connection if it is not already cached.
+
+## Introduced in 0.3.2 beta
+
+Light and dark appearances are available. Use the **Dark mode** switch in the top-right corner to change the appearance instantly. Your choice is remembered when you reopen the app.
+
+Live transcription now automatically switches to CPU processing if graphics-card processing fails, including failures that occur after the model loads. It retries the same audio so that the switch does not skip that speech. The status line explains when CPU processing is being used; updates can take longer on CPU.
+
+Live text appears in batches, not word by word. If updates are too slow, choose a smaller transcription model before your next recording. Final transcription still runs after you stop. If live transcription cannot recover, the status message explains that recording continues.
+
+## Saved-folder shortcuts introduced in 0.3.1 beta
 
 The bottom of the app now shows **Saved in:** followed by the actual folder path on your computer. Click **Open Saved Meetings** at any time to browse all your dated meeting folders, even just after opening the app. Each folder contains the recording, transcript, organized notes, and your typed notes. **Open Meeting Folder** still opens the current meeting after processing finishes.
 
@@ -20,7 +56,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.1 installer. Use the same installation folder as before.
+2. Run the new 0.3.5 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -60,12 +96,12 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.1-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.5-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
 - Downloads the lightweight `qwen3:4b` model that writes the notes.
-- Downloads the Whisper `small` model that transcribes recordings.
+- Downloads Whisper `small` for final transcripts and `tiny` for Eco live previews.
 - Creates Start-menu and desktop shortcuts.
 
 The model downloads are several gigabytes. Setup may take 10–60 minutes depending on the internet connection and computer. A download window may appear while the AI model is installed; leave it open until it closes by itself. The progress can appear paused for a while on slower connections.
@@ -140,7 +176,7 @@ If it says **Install a model with Ollama**, follow the model-installation instru
 
 Start with `small`. The first meeting processed with a particular Whisper model downloads that model. This can take several minutes. Keep MeetingScribe open and connected to the internet during that first download.
 
-MeetingScribe provides near-real-time transcription in short chunks while recording. It is not instant word-by-word captioning. The delay depends on the computer and selected Whisper model. Use `small` for the fastest live transcription; `medium` and `large-v3` may fall behind on computers without a capable graphics card. After recording stops, MeetingScribe transcribes the complete recording again to create the final transcript.
+MeetingScribe provides near-real-time transcription in short chunks while recording. It is not instant word-by-word captioning. Choose Eco, Balanced, or Off above the live transcript; this preview setting is separate from final transcription quality. After recording stops, MeetingScribe transcribes the complete recording again using your selected final model.
 
 ## Part 5 — Test audio before a real meeting
 

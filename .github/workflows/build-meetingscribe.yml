@@ -5,9 +5,6 @@ on:
     paths:
       - "tools/meetingscribe/**"
       - ".github/workflows/build-meetingscribe.yml"
-  push:
-    tags:
-      - "meetingscribe-v*"
   workflow_dispatch:
 
 permissions:
@@ -33,7 +30,9 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Validate source
-        run: python -m py_compile app.py
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -v
 
       - name: Build application
         run: pyinstaller --noconfirm MeetingScribe.spec
@@ -48,14 +47,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MeetingScribe-Windows-Setup
-          path: tools/meetingscribe/installer-output/MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe
+          path: tools/meetingscribe/installer-output/MeetingScribe-*-One-Click-Windows-Setup.exe
           if-no-files-found: error
 
-      - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/meetingscribe-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: MeetingScribe 0.2.1 beta
-          prerelease: true
-          generate_release_notes: true
-          files: tools/meetingscribe/installer-output/MeetingScribe-0.2.1-beta-One-Click-Windows-Setup.exe
+      # Release installers are uploaded separately after validation. CI artifacts
+      # must not replace a verified public installer when a tag is created.

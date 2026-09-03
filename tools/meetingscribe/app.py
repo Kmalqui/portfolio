@@ -6,6 +6,8 @@ import queue
 import re
 import sys
 import threading
+from contextlib import ExitStack
+from dataclasses import asdict
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,11 +18,15 @@ import requests
 import soundcard as sc
 import soundfile as sf
 from faster_whisper import WhisperModel
-from PySide6.QtCore import QObject, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPalette
+from audio_cleanup import CleanupSettings, VoiceCleanup
+from PySide6.QtCore import QObject, QRectF, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractButton,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -43,9 +49,14 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.1-beta"
+APP_VERSION = "0.3.5-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
+LIVE_CHUNK_SECONDS = 12
+LIVE_PROFILES = {
+    "eco": ("tiny", 2, False, 12_000),
+    "balanced": ("small", 4, True, 8_000),
+}
 APP_STYLESHEET = """
 QWidget { color: #173329; font-family: "Segoe UI"; font-size: 13px; }
 QMainWindow, QWidget#appRoot {
@@ -150,11 +161,44 @@ QCheckBox { spacing: 9px; color: #5d4919; font-weight: 600; }
 QCheckBox::indicator { width: 18px; height: 18px; }
 QSplitter::handle { height: 8px; background: transparent; }
 QStatusBar { background: #f3f6ef; color: #718078; }
+QLabel#privacyBadge { padding: 7px 11px; border-radius: 10px; background: #dff0bb; color: #375a22; font-size: 10px; font-weight: 800; }
+QComboBox#liveMode { min-height: 20px; padding: 1px 8px; font-size: 12px; }
+QPushButton#clarityButton { min-height: 20px; padding: 1px 8px; font-size: 12px; }
 """
 
 
-def apply_theme(app: QApplication) -> None:
-    """Use a consistent light palette, including native menus and checkboxes."""
+DARK_STYLESHEET = """
+QWidget { color: #e4eee8; }
+QMainWindow, QWidget#appRoot, QStatusBar { background: #151e1b; color: #b0c2b7; }
+QLabel#brandTitle, QLabel#sectionTitle { color: #edf5ef; }
+QLabel#brandSubtitle, QLabel#sectionHint, QLabel#meterState { color: #a8beb0; }
+QLabel#fieldLabel { color: #d1e1d6; }
+QFrame#card, QFrame#workspaceCard { background: #202d26; border-color: #3a4e40; }
+QFrame#meterPanel { background: #19251f; border-color: #3a4e40; }
+QFrame#consentCard { background: #332d1d; border-color: #71613a; }
+QLabel#consentTitle, QCheckBox { color: #f2d68e; }
+QComboBox, QSpinBox, QPlainTextEdit { background: #17221c; color: #e4eee8; border-color: #4b6051; selection-background-color: #436729; selection-color: #ffffff; }
+QComboBox QAbstractItemView { background: #202d26; color: #e4eee8; selection-background-color: #436729; }
+QPlainTextEdit:focus { background: #1b2921; border-color: #9fca3d; }
+QPushButton { background: #293b2e; color: #e4eee8; border-color: #4b6051; }
+QPushButton:hover { background: #354c3b; border-color: #9fca3d; }
+QPushButton:pressed { background: #405a36; }
+QPushButton:disabled { background: #233029; color: #889a8d; border-color: #34463a; }
+QPushButton#recordButton { background: #9fca3d; color: #102a22; }
+QPushButton#recordButton:hover { background: #aed94c; }
+QPushButton#recordButton:disabled { background: #35462c; color: #a4b696; }
+QPushButton#recordButton[recording="true"] { background: #a83430; color: #ffffff; }
+QPushButton#recordButton[processing="true"] { background: #315c4d; color: #ffffff; }
+QLabel#timer { background: #19251f; border-color: #4b6051; color: #e4eee8; }
+QLabel#statusPill { background: #2c4125; color: #d0edab; }
+QLabel#privacyBadge { background: #2c4125; color: #d0edab; }
+QProgressBar { background: #3a4e40; }
+QToolTip { background: #293b2e; color: #edf5ef; border: 1px solid #4b6051; }
+"""
+
+
+def apply_theme(app: QApplication, theme: str = "light") -> None:
+    """Apply matching widget and native-control palettes immediately."""
     app.setStyle("Fusion")
     palette = QPalette()
     for role, color in (
@@ -174,9 +218,25 @@ def apply_theme(app: QApplication) -> None:
         palette.setColor(role, QColor(color))
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#87958c"))
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor("#87958c"))
+    if theme == "dark":
+        for role, color in (
+            (QPalette.ColorRole.Window, "#151e1b"),
+            (QPalette.ColorRole.WindowText, "#e4eee8"),
+            (QPalette.ColorRole.Base, "#17221c"),
+            (QPalette.ColorRole.AlternateBase, "#202d26"),
+            (QPalette.ColorRole.Text, "#e4eee8"),
+            (QPalette.ColorRole.Button, "#293b2e"),
+            (QPalette.ColorRole.ButtonText, "#e4eee8"),
+            (QPalette.ColorRole.Highlight, "#436729"),
+            (QPalette.ColorRole.HighlightedText, "#ffffff"),
+            (QPalette.ColorRole.PlaceholderText, "#a8beb0"),
+            (QPalette.ColorRole.ToolTipBase, "#293b2e"),
+            (QPalette.ColorRole.ToolTipText, "#edf5ef"),
+        ):
+            palette.setColor(role, QColor(color))
     app.setPalette(palette)
     app.setFont(QFont("Segoe UI", 10))
-    app.setStyleSheet(APP_STYLESHEET)
+    app.setStyleSheet(APP_STYLESHEET + (DARK_STYLESHEET if theme == "dark" else ""))
 
 
 DEFAULT_PROMPT = """You are an expert meeting-note assistant. Convert the transcript into clean Markdown.
@@ -232,6 +292,8 @@ class Recorder(QObject):
         self._threads: list[threading.Thread] = []
         self._mic_chunks: list[np.ndarray] = []
         self._system_chunks: list[np.ndarray] = []
+        self.cleanup_settings = CleanupSettings()
+        self.original_folder: Path | None = None
 
     @staticmethod
     def microphones():
@@ -268,19 +330,21 @@ class Recorder(QObject):
             thread.start()
 
     def live_snapshot(self) -> tuple[np.ndarray, int] | None:
-        mic_chunks = list(self._mic_chunks)
-        system_chunks = list(self._system_chunks)
-        mic = np.concatenate(mic_chunks) if mic_chunks else np.zeros(0, np.float32)
-        system = (
-            np.concatenate(system_chunks) if system_chunks else np.zeros(0, np.float32)
-        )
-        end = max(len(mic), len(system))
+        # Capture always appends BLOCK_SIZE frames. Slice only the pending range,
+        # never concatenate or copy the full meeting for each live update.
+        available = max(len(self._mic_chunks), len(self._system_chunks)) * BLOCK_SIZE
+        end = min(available, self._live_cursor + SAMPLE_RATE * LIVE_CHUNK_SECONDS)
         if end - self._live_cursor < SAMPLE_RATE * 4:
             return None
         start = max(0, self._live_cursor - SAMPLE_RATE)
-        mic = np.pad(mic, (0, end - len(mic)))
-        system = np.pad(system, (0, end - len(system)))
-        mixed = mic[start:end] * 0.68 + system[start:end] * 0.68
+        mixed = np.zeros(end - start, dtype=np.float32)
+        for chunks in (self._mic_chunks, self._system_chunks):
+            first = start // BLOCK_SIZE
+            last = (end + BLOCK_SIZE - 1) // BLOCK_SIZE
+            for index, block in enumerate(chunks[first:last], start=first):
+                left = max(start, index * BLOCK_SIZE)
+                right = min(end, index * BLOCK_SIZE + len(block))
+                mixed[left - start:right - start] += block[left - index * BLOCK_SIZE:right - index * BLOCK_SIZE] * 0.68
         peak = float(np.max(np.abs(mixed))) if mixed.size else 0
         if peak > 0.98:
             mixed *= 0.98 / peak
@@ -291,14 +355,24 @@ class Recorder(QObject):
 
     def _capture(self, device, chunks: list[np.ndarray], is_mic: bool) -> None:
         try:
-            with device.recorder(samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE) as recorder:
+            settings = self.cleanup_settings
+            apply_cleanup = settings.enabled and (is_mic or settings.clean_others)
+            cleaner = VoiceCleanup(settings) if apply_cleanup else None
+            with ExitStack() as stack:
+                recorder = stack.enter_context(device.recorder(samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE))
+                original = None
+                if settings.enabled and self.original_folder:
+                    filename = "microphone-original.wav" if is_mic else "meeting-audio-original.wav"
+                    original = stack.enter_context(sf.SoundFile(str(self.original_folder / filename), mode="w", samplerate=SAMPLE_RATE, channels=1, subtype="PCM_16"))
                 while not self._stop.is_set():
                     block = recorder.record(numframes=BLOCK_SIZE)
                     if block.ndim == 2:
                         block = np.mean(block, axis=1)
                     block = np.asarray(block, dtype=np.float32)
-                    chunks.append(block)
                     rms = float(np.sqrt(np.mean(np.square(block))) if block.size else 0)
+                    if original is not None:
+                        original.write(block)
+                    chunks.append(cleaner.process(block) if cleaner else block)
                     if is_mic:
                         self.level.emit(min(rms * 900, 100), -1)
                     else:
@@ -336,9 +410,13 @@ class LiveTranscriber(QObject):
     status = Signal(str)
     error = Signal(str)
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, cpu_threads: int = 4, prefer_gpu: bool = True):
         super().__init__()
         self.model_name = model_name
+        self.cpu_threads = cpu_threads
+        self.prefer_gpu = prefer_gpu
+        self._ready = threading.Event()
+        self._ready.set()
         self._queue: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=1)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -347,11 +425,24 @@ class LiveTranscriber(QObject):
         self._thread.start()
 
     def submit(self, audio: np.ndarray) -> bool:
+        if not self.can_accept():
+            return False
+        self._ready.clear()
         try:
             self._queue.put_nowait(audio)
             return True
         except queue.Full:
+            self._ready.set()
             return False
+
+    def can_accept(self) -> bool:
+        return not self._stop.is_set() and self._ready.is_set()
+
+    def is_running(self) -> bool:
+        return self._thread.is_alive()
+
+    def _load_cpu(self):
+        return WhisperModel(self.model_name, device="cpu", compute_type="int8", cpu_threads=self.cpu_threads, num_workers=1)
 
     def stop(self) -> None:
         self._stop.set()
@@ -363,27 +454,56 @@ class LiveTranscriber(QObject):
     def _run(self) -> None:
         try:
             self.status.emit(f"Loading Whisper {self.model_name} for live transcription…")
-            try:
-                model = WhisperModel(self.model_name, device="cuda", compute_type="float16")
-            except Exception:
-                model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+            using_gpu = self.prefer_gpu
+            if using_gpu:
+                try:
+                    model = WhisperModel(self.model_name, device="cuda", compute_type="float16", cpu_threads=self.cpu_threads, num_workers=1)
+                except Exception:
+                    using_gpu = False
+                    self.status.emit("Starting CPU live transcription…")
+                    model = self._load_cpu()
+            else:
+                model = self._load_cpu()
             self.status.emit("Live transcription is listening…")
             while not self._stop.is_set():
                 audio = self._queue.get()
                 if audio is None or self._stop.is_set():
                     break
                 audio_16k = np.ascontiguousarray(audio[::3], dtype=np.float32)
-                segments, _ = model.transcribe(
-                    audio_16k,
-                    vad_filter=True,
-                    beam_size=1,
-                    condition_on_previous_text=False,
-                )
-                text = " ".join(segment.text.strip() for segment in segments).strip()
-                if text:
+                try:
+                    text = self._transcribe_chunk(model, audio_16k)
+                except Exception:
+                    if not using_gpu or self._stop.is_set():
+                        raise
+                    # CUDA libraries can fail on inference, not just model loading.
+                    # Retry this same chunk so the fallback does not lose speech.
+                    using_gpu = False
+                    self.status.emit("Graphics processing unavailable — switching live transcription to CPU…")
+                    del model
+                    model = self._load_cpu()
+                    if self._stop.is_set():
+                        break
+                    text = self._transcribe_chunk(model, audio_16k)
+                    self.status.emit("Live transcription is listening on CPU — updates may take longer.")
+                if text and not self._stop.is_set():
                     self.text_ready.emit(text)
+                self._ready.set()
         except Exception as exc:
-            self.error.emit(f"Live transcription paused: {exc}")
+            if not self._stop.is_set():
+                self.error.emit(f"Live transcription paused: {exc}. Recording continues; a full transcript will be attempted when you stop.")
+        finally:
+            self._stop.set()
+
+    @staticmethod
+    def _transcribe_chunk(model, audio_16k: np.ndarray) -> str:
+        segments, _ = model.transcribe(
+            audio_16k,
+            vad_filter=True,
+            beam_size=1,
+            condition_on_previous_text=False,
+        )
+        # Whisper may defer inference until the segments iterator is consumed.
+        return " ".join(segment.text.strip() for segment in segments).strip()
 
 
 class ProcessingWorker(QObject):
@@ -446,6 +566,39 @@ class ProcessingWorker(QObject):
             self.failed.emit(str(exc))
 
 
+class ThemeToggle(QAbstractButton):
+    """Compact, keyboard-accessible switch: checked means dark mode."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setFixedSize(54, 32)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAccessibleName("Dark mode")
+        self.setAccessibleDescription("Switch on for dark mode, off for light mode. Press Space to toggle.")
+        self.setToolTip("Dark mode: on. Light mode: off. Your preference is remembered.")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        track = QColor("#625dff" if self.isChecked() else "#35363e")
+        if self.isDown():
+            track = track.darker(115)
+        if not self.isEnabled():
+            painter.setOpacity(0.5)
+        painter.setPen(QPen(QColor("#625dff" if self.isChecked() else "#55565f"), 1))
+        painter.setBrush(track)
+        painter.drawRoundedRect(QRectF(3, 4, 48, 24), 12, 12)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(QRectF(31 if self.isChecked() else 7, 8, 16, 16))
+        if self.hasFocus():
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(self.palette().color(QPalette.ColorRole.WindowText), 1, Qt.PenStyle.DashLine))
+            painter.drawRoundedRect(QRectF(1, 1, 52, 30), 15, 15)
+
+
 class NotesEditor(QPlainTextEdit):
     def sizeHint(self):
         return QSize(320, 80)
@@ -460,6 +613,7 @@ class MeetingScribeWindow(QMainWindow):
         self.setWindowTitle("MeetingScribe — Private Local Meeting Notes")
         self.resize(1000, 900)
         self.settings = QSettings("MeetingScribe", "MeetingScribe")
+        apply_theme(QApplication.instance(), self.settings.value("theme", "light"))
         self.recorder = Recorder()
         self.recorder.level.connect(self.update_levels)
         self.recorder.error.connect(self.show_error)
@@ -484,8 +638,8 @@ class MeetingScribeWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("appRoot")
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(26, 22, 26, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(26, 16, 26, 14)
+        layout.setSpacing(9)
 
         header = QHBoxLayout()
         header.setSpacing(13)
@@ -508,11 +662,21 @@ class MeetingScribeWindow(QMainWindow):
         header.addWidget(brand_icon)
         header.addLayout(brand_copy, 1)
         privacy_badge = QLabel("PRIVATE • LOCAL AI")
-        privacy_badge.setStyleSheet(
-            "padding: 7px 11px; border-radius: 10px; background: #dff0bb; "
-            "color: #375a22; font-size: 10px; font-weight: 800;"
-        )
-        header.addWidget(privacy_badge, 0, Qt.AlignmentFlag.AlignTop)
+        privacy_badge.setObjectName("privacyBadge")
+        preferences = QVBoxLayout()
+        preferences.addWidget(privacy_badge)
+        theme_row = QHBoxLayout()
+        theme_row.addStretch()
+        theme_label = QLabel("Dark mode")
+        theme_label.setObjectName("fieldLabel")
+        theme_row.addWidget(theme_label)
+        self.theme_toggle = ThemeToggle()
+        self.theme_toggle.setChecked(self.settings.value("theme", "light") == "dark")
+        self.theme_toggle.toggled.connect(self.change_theme)
+        theme_label.setBuddy(self.theme_toggle)
+        theme_row.addWidget(self.theme_toggle)
+        preferences.addLayout(theme_row)
+        header.addLayout(preferences)
         layout.addLayout(header)
 
         setup_card = QFrame()
@@ -574,7 +738,16 @@ class MeetingScribeWindow(QMainWindow):
         meter_help = QLabel("The bars move once recording starts. Both should react during conversation.")
         meter_help.setObjectName("sectionHint")
         meter_help.setWordWrap(True)
-        audio_layout.addWidget(audio_title)
+        audio_heading = QHBoxLayout()
+        audio_heading.addWidget(audio_title, 1)
+        self.clarity_button = QPushButton("Voice clarity…")
+        self.clarity_button.setObjectName("clarityButton")
+        if self.cleanup_preferences().enabled:
+            self.clarity_button.setText("Voice clarity: On")
+        self.clarity_button.setToolTip("Optional cleanup inside MeetingScribe only. Does not change audio in other apps.")
+        self.clarity_button.clicked.connect(self.edit_voice_clarity)
+        audio_heading.addWidget(self.clarity_button)
+        audio_layout.addLayout(audio_heading)
         audio_layout.addWidget(meter_help)
         meters = QHBoxLayout()
         meters.setSpacing(12)
@@ -681,7 +854,20 @@ class MeetingScribeWindow(QMainWindow):
         transcript_layout.setContentsMargins(13, 10, 13, 13)
         transcript_label = QLabel("LIVE TRANSCRIPT  •  AUTOMATIC AND READ-ONLY")
         transcript_label.setObjectName("fieldLabel")
-        transcript_layout.addWidget(transcript_label)
+        transcript_header = QHBoxLayout()
+        transcript_header.addWidget(transcript_label, 1)
+        self.live_mode_combo = QComboBox()
+        self.live_mode_combo.setObjectName("liveMode")
+        self.live_mode_combo.addItem("Eco — lowest load", "eco")
+        self.live_mode_combo.addItem("Balanced — clearer preview", "balanced")
+        self.live_mode_combo.addItem("Off — final transcript only", "off")
+        saved_live_mode = self.live_mode_combo.findData(self.settings.value("live_mode", "eco"))
+        self.live_mode_combo.setCurrentIndex(max(0, saved_live_mode))
+        self.live_mode_combo.setAccessibleName("Live transcription resource use")
+        self.live_mode_combo.setToolTip("Eco uses a smaller CPU model and updates about every 12 seconds when it can keep up. Balanced uses a larger preview model. Final transcription quality is unchanged. Choose before recording.")
+        self.live_mode_combo.currentIndexChanged.connect(lambda: self.settings.setValue("live_mode", self.live_mode_combo.currentData()))
+        transcript_header.addWidget(self.live_mode_combo)
+        transcript_layout.addLayout(transcript_header)
         transcript_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.live_transcript = NotesEditor()
         self.live_transcript.setReadOnly(True)
@@ -837,6 +1023,59 @@ class MeetingScribeWindow(QMainWindow):
         if index >= 0:
             combo.setCurrentIndex(index)
 
+    def change_theme(self):
+        theme = "dark" if self.theme_toggle.isChecked() else "light"
+        self.settings.setValue("theme", theme)
+        apply_theme(QApplication.instance(), theme)
+
+    def cleanup_preferences(self):
+        return CleanupSettings(
+            noise_reduction=self.settings.value("cleanup/noise", False, type=bool),
+            level_volume=self.settings.value("cleanup/level", False, type=bool),
+            threshold_db=max(-65, min(-30, self.settings.value("cleanup/threshold", -50, type=int))),
+            clean_others=self.settings.value("cleanup/others", False, type=bool),
+        )
+
+    def edit_voice_clarity(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Voice clarity — MeetingScribe only")
+        dialog.setMinimumWidth(500)
+        layout = QVBoxLayout(dialog)
+        description = QLabel("Optional, lightweight cleanup for recordings and transcripts. It does not change what anyone hears in Teams or Discord.")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        settings = self.cleanup_preferences()
+        noise = QCheckBox("Reduce quiet background noise")
+        noise.setChecked(settings.noise_reduction)
+        noise.setToolTip("Softens low-level audio between speech. Does not isolate voices or remove noise over speech.")
+        level = QCheckBox("Automatically level voice volume")
+        level.setChecked(settings.level_volume)
+        level.setToolTip("Gently adjusts volume, with amplification limited to 3×. Cannot restore clipped or missing speech.")
+        others = QCheckBox("Also clean up meeting audio (other people)")
+        others.setChecked(settings.clean_others)
+        others.setToolTip("Leave off if Teams or Discord already processes other participants' audio.")
+        for checkbox in (noise, level, others):
+            layout.addWidget(checkbox)
+        form = QFormLayout()
+        threshold = QSpinBox()
+        threshold.setRange(-65, -30)
+        threshold.setSuffix(" dB")
+        threshold.setValue(settings.threshold_db)
+        threshold.setToolTip("Lower values preserve quieter voices. Higher values soften more background sound but can soften quiet speech too. Start at −50 dB.")
+        form.addRow("Quiet-sound threshold", threshold)
+        layout.addLayout(form)
+        warning = QLabel("This is gentle volume-based cleanup, not AI voice isolation or echo cancellation. Turn both cleanup options off for unprocessed audio. When cleanup is on, original microphone and meeting-audio copies are saved too (uses more disk space).")
+        warning.setWordWrap(True)
+        layout.addWidget(warning)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            for name, value in (("noise", noise.isChecked()), ("level", level.isChecked()), ("others", others.isChecked()), ("threshold", threshold.value())):
+                self.settings.setValue(f"cleanup/{name}", value)
+            self.clarity_button.setText("Voice clarity: On" if self.cleanup_preferences().enabled else "Voice clarity…")
+
     def toggle_recording(self):
         if self.recording:
             self.stop_recording()
@@ -864,6 +1103,9 @@ class MeetingScribeWindow(QMainWindow):
         selection = AudioSelection(
             str(self.mic_combo.currentData()), str(self.speaker_combo.currentData())
         )
+        self.recorder.cleanup_settings = self.cleanup_preferences()
+        self.recorder.original_folder = self.current_folder
+        (self.current_folder / "audio-settings.json").write_text(json.dumps(asdict(self.recorder.cleanup_settings), indent=2), encoding="utf-8")
         try:
             self.recorder.start(selection)
         except Exception as exc:
@@ -875,18 +1117,27 @@ class MeetingScribeWindow(QMainWindow):
         self.settings.setValue("ollama_model", self.model_combo.currentText())
         self.settings.setValue("whisper", self.whisper_combo.currentText())
         self.recording = True
+        self.clarity_button.setEnabled(False)
+        self.last_mic_sound = self.last_system_sound = time.monotonic()
         self.consent_checkbox.setEnabled(False)
         self.mic_state.setText("Listening…")
         self.system_state.setText("Listening…")
         self.started_at = time.monotonic()
         self.timer.start(250)
         self.live_transcript.clear()
-        self.live_transcriber = LiveTranscriber(self.whisper_combo.currentText())
-        self.live_transcriber.text_ready.connect(self.append_live_transcript)
-        self.live_transcriber.status.connect(self.status_label.setText)
-        self.live_transcriber.error.connect(self.status_label.setText)
-        self.live_transcriber.start()
-        self.live_timer.start()
+        live_mode = self.live_mode_combo.currentData()
+        self.live_mode_combo.setEnabled(False)
+        self.live_transcriber = None
+        if live_mode != "off":
+            preview_model, threads, prefer_gpu, interval = LIVE_PROFILES[live_mode]
+            self.live_transcriber = LiveTranscriber(preview_model, cpu_threads=threads, prefer_gpu=prefer_gpu)
+            self.live_transcriber.text_ready.connect(self.append_live_transcript)
+            self.live_transcriber.status.connect(self.status_label.setText)
+            self.live_transcriber.error.connect(self.status_label.setText)
+            self.live_transcriber.start()
+            self.live_timer.start(interval)
+        else:
+            self.live_transcript.setPlainText("Live preview is off to save resources. The full transcript will appear after you stop.")
         self._set_record_button_state("recording")
         self.status_label.setText("Recording microphone and meeting audio…")
         self.notes.clear()
@@ -906,6 +1157,16 @@ class MeetingScribeWindow(QMainWindow):
         except Exception as exc:
             self.processing_failed(str(exc))
             return
+        self.finish_live_before_processing()
+
+    def finish_live_before_processing(self):
+        # Do not run two Whisper models concurrently at the recording boundary.
+        # Poll asynchronously so the interface remains responsive.
+        if self.live_transcriber and self.live_transcriber.is_running():
+            self.status_label.setText("Finishing the live preview before final transcription…")
+            QTimer.singleShot(150, self.finish_live_before_processing)
+            return
+        self.live_transcriber = None
         self.process_audio()
 
     def process_audio(self):
@@ -929,6 +1190,8 @@ class MeetingScribeWindow(QMainWindow):
         self._worker = worker
 
     def processing_completed(self, transcript: str, notes: str):
+        self.clarity_button.setEnabled(True)
+        self.live_mode_combo.setEnabled(True)
         self.live_transcript.setPlainText(transcript)
         (self.current_folder / "transcript.txt").write_text(transcript, encoding="utf-8")
         self.save_personal_notes()
@@ -953,6 +1216,8 @@ class MeetingScribeWindow(QMainWindow):
         self.open_folder_button.setEnabled(True)
 
     def processing_failed(self, message: str):
+        self.clarity_button.setEnabled(True)
+        self.live_mode_combo.setEnabled(True)
         self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
         self.consent_checkbox.setChecked(False)
@@ -963,16 +1228,21 @@ class MeetingScribeWindow(QMainWindow):
 
     def update_levels(self, mic: float, system: float):
         if mic >= 0:
+            if mic >= 3:
+                self.last_mic_sound = time.monotonic()
             self.mic_meter.setValue(int(mic))
-            self.mic_state.setText("Sound detected ✓" if mic >= 3 else "Listening…")
+            quiet_warning = self.recording and time.monotonic() - getattr(self, "last_mic_sound", time.monotonic()) > 10
+            self.mic_state.setText("Sound detected ✓" if mic >= 3 else ("No recent sound — check your microphone if speaking." if quiet_warning else "Listening…"))
         if system >= 0:
+            if system >= 3:
+                self.last_system_sound = time.monotonic()
             self.system_meter.setValue(int(system))
             self.system_state.setText(
-                "Sound detected ✓" if system >= 3 else "Listening…"
+                "Sound detected ✓" if system >= 3 else ("No recent meeting audio — normal when others are silent." if self.recording and time.monotonic() - getattr(self, "last_system_sound", time.monotonic()) > 10 else "Listening…")
             )
 
     def request_live_transcription(self):
-        if not self.recording or not self.live_transcriber:
+        if not self.recording or not self.live_transcriber or not self.live_transcriber.can_accept():
             return
         snapshot = self.recorder.live_snapshot()
         if not snapshot:
@@ -1095,6 +1365,7 @@ def main():
         # Used by the all-in-one installer so the first meeting does not need
         # to wait for the transcription model download.
         WhisperModel("small", device="cpu", compute_type="int8")
+        WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=2)
         return
 
     if sys.platform == "win32":
