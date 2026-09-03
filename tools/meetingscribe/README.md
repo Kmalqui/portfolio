@@ -4,7 +4,13 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
-## New in 0.3.0 beta
+## New in 0.3.1 beta
+
+The bottom of the app now shows **Saved in:** followed by the actual folder path on your computer. Click **Open Saved Meetings** at any time to browse all your dated meeting folders, even just after opening the app. Each folder contains the recording, transcript, organized notes, and your typed notes. **Open Meeting Folder** still opens the current meeting after processing finishes.
+
+By default, the location is `Documents\Meeting Notes` inside your user folder. The app displays its exact save path, which is useful if you also have a separate Documents folder managed by OneDrive. This update does not move existing recordings or notes.
+
+## Interface introduced in 0.3.0 beta
 
 - A cream-and-green interface with grouped setup cards and clear audio activity panels.
 - A transcript across the top, with your personal notes and the organized summary side by side underneath. Drag the dividers to adjust their sizes.
@@ -14,7 +20,7 @@ You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.0 installer. Use the same installation folder as before.
+2. Run the new 0.3.1 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -54,7 +60,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.0-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.1-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.

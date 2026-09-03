@@ -85,6 +85,40 @@ class InterfaceTests(unittest.TestCase):
         self.assertFalse(icon.isNull())
         self.assertGreaterEqual(len(icon.availableSizes()), 4)
 
+    def test_saved_meetings_opens_before_recording(self):
+        self.assertTrue(self.window.saved_meetings_button.isEnabled())
+        self.assertFalse(self.window.open_folder_button.isEnabled())
+        self.assertIn(str(meetingscribe.default_output_dir(create=False)), self.window.save_location_label.text())
+        with tempfile.TemporaryDirectory(prefix="meeting notes ") as folder:
+            with patch.object(meetingscribe, "default_output_dir", return_value=Path(folder)), patch.object(
+                meetingscribe.QDesktopServices, "openUrl", return_value=True
+            ) as opened:
+                self.window.saved_meetings_button.click()
+                opened.assert_called_once()
+                self.assertTrue(opened.call_args.args[0].isLocalFile())
+                self.assertEqual(Path(opened.call_args.args[0].toLocalFile()), Path(folder).resolve())
+
+    def test_current_folder_is_distinct_from_all_meetings(self):
+        with tempfile.TemporaryDirectory(prefix="meetingscribe-test-") as folder:
+            self.window.current_folder = Path(folder)
+            with patch.object(meetingscribe.QDesktopServices, "openUrl", return_value=True) as opened:
+                self.window.open_meeting_folder()
+                self.assertEqual(Path(opened.call_args.args[0].toLocalFile()), Path(folder).resolve())
+            self.window.current_folder = None
+
+    def test_folder_errors_are_visible(self):
+        with patch.object(meetingscribe, "default_output_dir", side_effect=PermissionError("Access denied")), patch.object(
+            self.window, "show_error"
+        ) as error:
+            self.window.open_saved_meetings()
+            error.assert_called_once()
+        with tempfile.TemporaryDirectory(prefix="meetingscribe-test-") as folder:
+            with patch.object(meetingscribe.QDesktopServices, "openUrl", return_value=False), patch.object(
+                self.window, "show_error"
+            ) as error:
+                self.window._open_folder(Path(folder))
+                error.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
