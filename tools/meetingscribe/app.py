@@ -50,7 +50,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.6-beta"
+APP_VERSION = "0.3.8-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -1380,7 +1380,7 @@ def main():
             import ctypes
 
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "MeetingScribe.MeetingScribe.0.3"
+                "MeetingScribe.MeetingScribe.CharacterTransparent"
             )
         except Exception:
             pass

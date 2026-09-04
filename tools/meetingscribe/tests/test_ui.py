@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import Qt, QSettings
-from PySide6.QtGui import QIcon, QPalette
+from PySide6.QtGui import QIcon, QPalette, QImage
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 
@@ -184,6 +184,16 @@ class InterfaceTests(unittest.TestCase):
         icon = QIcon(str(meetingscribe.resource_path("assets/meetingscribe-icon.ico")))
         self.assertFalse(icon.isNull())
         self.assertGreaterEqual(len(icon.availableSizes()), 4)
+
+    def test_character_background_is_transparent(self):
+        image = QImage(str(meetingscribe.resource_path("assets/meetingscribe-icon.png")))
+        self.assertTrue(image.hasAlphaChannel())
+        for x, y in ((0, 0), (image.width()-1, 0), (0, image.height()-1), (image.width()-1, image.height()-1)):
+            self.assertEqual(image.pixelColor(x, y).alpha(), 0)
+        self.assertEqual(image.pixelColor(image.width()//2, image.height()//2).alpha(), 255)
+        icon = QIcon(str(meetingscribe.resource_path("assets/meetingscribe-icon.ico")))
+        for size in icon.availableSizes():
+            self.assertEqual(icon.pixmap(size).toImage().pixelColor(0, 0).alpha(), 0)
 
     def test_saved_meetings_opens_before_recording(self):
         self.assertTrue(self.window.saved_meetings_button.isEnabled())
