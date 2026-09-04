@@ -4,7 +4,13 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
-## New in 0.3.5 beta — optional voice clarity
+## New in 0.3.6 beta — a softer look
+
+MeetingScribe now has rounded cards, pill-shaped controls, lavender/peach/mint note areas, friendlier empty-state text, and a matching plum-colored dark theme. The dark-mode switch and saved preferences work as before. This visual update adds no animation loops or background processing; recording, voice clarity, Eco mode, and consent requirements are unchanged.
+
+The organized meeting notes area is now labeled **The wrap-up · after recording**. It still contains the final AI-generated summary.
+
+## Introduced in 0.3.5 beta — optional voice clarity
 
 Before recording, select **Voice clarity…** beside the audio meters. Cleanup is off by default and changes only MeetingScribe's saved audio and transcription input—not your microphone in other applications.
 
@@ -56,7 +62,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.5 installer. Use the same installation folder as before.
+2. Run the new 0.3.6 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -96,7 +102,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.5-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.6-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.

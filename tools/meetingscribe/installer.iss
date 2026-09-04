@@ -1,5 +1,5 @@
 #define MyAppName "MeetingScribe"
-#define MyAppVersion "0.3.5-beta"
+#define MyAppVersion "0.3.6-beta"
 #define MyAppPublisher "MeetingScribe Community Beta"
 #define MyAppExeName "MeetingScribe.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
 OutputDir=installer-output
-OutputBaseFilename=MeetingScribe-0.3.5-beta-One-Click-Windows-Setup
+OutputBaseFilename=MeetingScribe-0.3.6-beta-One-Click-Windows-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
