@@ -12,6 +12,8 @@ for package in ('soundcard', 'soundfile', 'ctranslate2', 'tokenizers', 'huggingf
 datas += [
     ('assets/meetingscribe-icon.png', 'assets'),
     ('assets/meetingscribe-icon.ico', 'assets'),
+    ('assets/chevron-light.svg', 'assets'),
+    ('assets/chevron-dark.svg', 'assets'),
 ]
 
 a = Analysis(

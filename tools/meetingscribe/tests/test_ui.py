@@ -36,7 +36,7 @@ class InterfaceTests(unittest.TestCase):
         self.window.theme_toggle.click()
         self.qt.processEvents()
         self.assertEqual(self.test_settings.value("theme"), "dark")
-        self.assertEqual(self.qt.palette().color(QPalette.ColorRole.Window).name(), "#151e1b")
+        self.assertEqual(self.qt.palette().color(QPalette.ColorRole.Window).name(), "#211d30")
         self.assertEqual(self.window.personal_notes.toPlainText(), "Keep this note.")
         with patch.object(meetingscribe.MeetingScribeWindow, "refresh_devices"), patch.object(
             meetingscribe.MeetingScribeWindow, "refresh_models"
@@ -48,7 +48,7 @@ class InterfaceTests(unittest.TestCase):
         QTest.keyClick(self.window.theme_toggle, Qt.Key.Key_Space)
         self.assertFalse(self.window.theme_toggle.isChecked())
         self.assertEqual(self.test_settings.value("theme"), "light")
-        self.assertEqual(self.qt.palette().color(QPalette.ColorRole.Window).name(), "#f3f6ef")
+        self.assertEqual(self.qt.palette().color(QPalette.ColorRole.Window).name(), "#fff8f2")
 
     def tearDown(self):
         self.window.close()
@@ -153,7 +153,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.mic_meter.value(), 25)
         self.assertEqual(self.window.system_meter.value(), 40)
         self.assertIn("Sound detected", self.window.system_state.text())
-        self.assertEqual(self.qt.palette().color(QPalette.ColorRole.WindowText).name(), "#173329")
+        self.assertEqual(self.qt.palette().color(QPalette.ColorRole.WindowText).name(), "#34264d")
 
     def test_clarity_dialog_save_cancel_and_persistence(self):
         def save_dialog(dialog):

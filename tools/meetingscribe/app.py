@@ -19,6 +19,7 @@ import soundcard as sc
 import soundfile as sf
 from faster_whisper import WhisperModel
 from audio_cleanup import CleanupSettings, VoiceCleanup
+import bubbly_theme
 from PySide6.QtCore import QObject, QRectF, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
@@ -49,7 +50,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.5-beta"
+APP_VERSION = "0.3.6-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -234,9 +235,12 @@ def apply_theme(app: QApplication, theme: str = "light") -> None:
             (QPalette.ColorRole.ToolTipText, "#edf5ef"),
         ):
             palette.setColor(role, QColor(color))
+    for role, color in bubbly_theme.palette_colors(theme == "dark").items():
+        palette.setColor(getattr(QPalette.ColorRole, role), QColor(color))
     app.setPalette(palette)
     app.setFont(QFont("Segoe UI", 10))
-    app.setStyleSheet(APP_STYLESHEET + (DARK_STYLESHEET if theme == "dark" else ""))
+    arrow = resource_path(f"assets/chevron-{'dark' if theme == 'dark' else 'light'}.svg").as_posix()
+    app.setStyleSheet(APP_STYLESHEET + (DARK_STYLESHEET if theme == "dark" else "") + bubbly_theme.COMMON + (bubbly_theme.DARK if theme == "dark" else bubbly_theme.LIGHT) + f'QComboBox::down-arrow {{ image: url("{arrow}"); width: 12px; height: 8px; }}')
 
 
 DEFAULT_PROMPT = """You are an expert meeting-note assistant. Convert the transcript into clean Markdown.
@@ -653,7 +657,7 @@ class MeetingScribeWindow(QMainWindow):
         title = QLabel("MeetingScribe")
         title.setObjectName("brandTitle")
         subtitle = QLabel(
-            "With permission, record a meeting, transcribe locally, and create private AI notes."
+            "A little listening buddy for your big ideas. Private notes, made locally."
         )
         subtitle.setObjectName("brandSubtitle")
         subtitle.setWordWrap(True)
@@ -661,7 +665,7 @@ class MeetingScribeWindow(QMainWindow):
         brand_copy.addWidget(subtitle)
         header.addWidget(brand_icon)
         header.addLayout(brand_copy, 1)
-        privacy_badge = QLabel("PRIVATE • LOCAL AI")
+        privacy_badge = QLabel("✦  Your notes, your computer")
         privacy_badge.setObjectName("privacyBadge")
         preferences = QVBoxLayout()
         preferences.addWidget(privacy_badge)
@@ -685,7 +689,7 @@ class MeetingScribeWindow(QMainWindow):
         setup_layout = QVBoxLayout(setup_card)
         setup_layout.setContentsMargins(16, 13, 16, 15)
         setup_layout.setSpacing(10)
-        setup_title = QLabel("1  Choose what MeetingScribe should hear")
+        setup_title = QLabel("①  Let's get your audio ready")
         setup_title.setObjectName("sectionTitle")
         setup_hint = QLabel(
             "Your microphone captures you. Meeting audio output captures everyone you hear."
@@ -733,7 +737,7 @@ class MeetingScribeWindow(QMainWindow):
         audio_layout = QVBoxLayout(audio_card)
         audio_layout.setContentsMargins(16, 13, 16, 14)
         audio_layout.setSpacing(9)
-        audio_title = QLabel("2  Check the audio activity")
+        audio_title = QLabel("②  Sound check")
         audio_title.setObjectName("sectionTitle")
         meter_help = QLabel("The bars move once recording starts. Both should react during conversation.")
         meter_help.setObjectName("sectionHint")
@@ -756,7 +760,7 @@ class MeetingScribeWindow(QMainWindow):
         mic_box.setObjectName("meterPanel")
         mic_panel = QVBoxLayout(mic_box)
         mic_panel.setContentsMargins(12, 9, 12, 9)
-        mic_label = QLabel("YOU  •  MICROPHONE")
+        mic_label = QLabel("●  You · microphone")
         mic_label.setObjectName("fieldLabel")
         mic_panel.addWidget(mic_label)
         self.mic_meter = QProgressBar()
@@ -774,7 +778,7 @@ class MeetingScribeWindow(QMainWindow):
         system_box.setObjectName("meterPanel")
         system_panel = QVBoxLayout(system_box)
         system_panel.setContentsMargins(12, 9, 12, 9)
-        system_label = QLabel("OTHERS  •  MEETING AUDIO")
+        system_label = QLabel("●  Everyone else · audio")
         system_label.setObjectName("fieldLabel")
         system_panel.addWidget(system_label)
         self.system_meter = QProgressBar()
@@ -849,10 +853,11 @@ class MeetingScribeWindow(QMainWindow):
 
         transcript_panel = QFrame()
         transcript_panel.setObjectName("workspaceCard")
+        transcript_panel.setProperty("tone", "lavender")
         transcript_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         transcript_layout = QVBoxLayout(transcript_panel)
         transcript_layout.setContentsMargins(13, 10, 13, 13)
-        transcript_label = QLabel("LIVE TRANSCRIPT  •  AUTOMATIC AND READ-ONLY")
+        transcript_label = QLabel("✦  Live transcript · we'll do the typing")
         transcript_label.setObjectName("fieldLabel")
         transcript_header = QHBoxLayout()
         transcript_header.addWidget(transcript_label, 1)
@@ -872,18 +877,19 @@ class MeetingScribeWindow(QMainWindow):
         self.live_transcript = NotesEditor()
         self.live_transcript.setReadOnly(True)
         self.live_transcript.setPlaceholderText(
-            "Near-real-time transcription will appear here shortly after recording starts."
+            "Your conversation lands here in little batches. Start recording when everyone is ready."
         )
         transcript_layout.addWidget(self.live_transcript, 1)
         workspace.addWidget(transcript_panel)
 
         personal_panel = QFrame()
         personal_panel.setObjectName("workspaceCard")
+        personal_panel.setProperty("tone", "peach")
         personal_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         personal_layout = QVBoxLayout(personal_panel)
         personal_layout.setContentsMargins(13, 10, 13, 13)
         personal_header = QHBoxLayout()
-        personal_label = QLabel("MY NOTES  •  TYPE WHILE YOU LISTEN")
+        personal_label = QLabel("✎  My notes · your space")
         personal_label.setObjectName("fieldLabel")
         personal_header.addWidget(personal_label)
         personal_header.addStretch()
@@ -892,7 +898,7 @@ class MeetingScribeWindow(QMainWindow):
         personal_header.addWidget(clear_personal)
         personal_layout.addLayout(personal_header)
         self.personal_notes = NotesEditor()
-        self.personal_notes.setPlaceholderText("Your own notes, questions, and reminders…")
+        self.personal_notes.setPlaceholderText("A bright idea? A question for later? Pop it here…")
         self.personal_notes.textChanged.connect(self.save_personal_notes)
         personal_layout.addWidget(self.personal_notes, 1)
         notes_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -900,16 +906,17 @@ class MeetingScribeWindow(QMainWindow):
 
         ai_panel = QFrame()
         ai_panel.setObjectName("workspaceCard")
+        ai_panel.setProperty("tone", "mint")
         ai_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         ai_layout = QVBoxLayout(ai_panel)
         ai_layout.setContentsMargins(13, 10, 13, 13)
-        ai_label = QLabel("ORGANIZED MEETING NOTES  •  CREATED AFTER RECORDING")
+        ai_label = QLabel("✧  The wrap-up · after recording")
         ai_label.setObjectName("fieldLabel")
         ai_label.setWordWrap(True)
         ai_layout.addWidget(ai_label)
         ai_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.notes = NotesEditor()
-        self.notes.setPlaceholderText("The organized summary will appear here.")
+        self.notes.setPlaceholderText("We'll gather the key points and next steps here after you stop. Give them a quick review before sharing.")
         self.notes.setFont(QFont("Segoe UI", 10))
         ai_layout.addWidget(self.notes, 1)
         notes_splitter.addWidget(ai_panel)
