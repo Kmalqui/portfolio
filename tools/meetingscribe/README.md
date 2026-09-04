@@ -4,7 +4,28 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
-## New in 0.3.8 beta — a listening buddy
+## New in 0.3.11 beta — a calmer footer
+
+The bottom row now contains just **Save Notes**, **Saved Meetings**, and **Settings**. Saved Meetings offers **Open all saved meetings** and **Open this meeting's folder**; the latter becomes available after processing finishes. The separate folder button beside the recording timer is gone. Open Settings for summary customization, device refresh, and update controls. Hover over Saved Meetings to see the full save location. Settings shows **Settings · Update** when a newer version is available.
+
+## Introduced in 0.3.9 beta — updates inside the app
+
+Install this version manually once. Future versions can be installed from MeetingScribe:
+
+1. When the app opens, it checks the public GitHub release list in the background.
+2. If a newer compatible version is available, choose **Install and restart** or **Later**.
+3. The installer downloads and is checked against GitHub's SHA-256 checksum before it runs. You can cancel during download.
+4. Your open notes are saved, the app closes, setup updates it, and MeetingScribe reopens with your notes restored.
+
+Use **Settings → Check for updates** at any time. Uncheck **Check for updates on startup** in that menu if you prefer manual checks. Offline checks fail quietly; they do not prevent recording. If a meeting is active, **Settings · Update** flags the update for after recording and final transcription finish. During a download, open **Updating…** to cancel it. Updates never force-close an active meeting.
+
+In-app updates preserve saved meetings, preferences, Ollama, and downloaded models. They skip first-time AI setup. The normal website installer still performs first-time setup and can be used for repairs. Only one MeetingScribe window can run at a time so one copy cannot update files used by another.
+
+Update checks contact GitHub and downloads use GitHub's servers; meeting audio and notes are not included. GitHub receives ordinary connection information such as your IP address. Beta installations receive newer beta or stable MeetingScribe releases; stable installations do not opt into betas. Source/macOS installations cannot use the Windows in-app installer. The beta installer remains unsigned, so Windows may show a warning. Verification checks download integrity, not an independent publisher signature.
+
+If an update fails after the app closes, reopen MeetingScribe to recover your open notes, or use the website installer. A recovery copy is kept locally in the app's data folder until it is restored. Existing meeting folders are never deleted by the updater.
+
+## Introduced in 0.3.8 beta — a listening buddy
 
 The app, installer, and Windows shortcuts now feature the green helper taking notes beside a microphone. Its transparent background blends into both light and dark mode without a cream box. Recording, transcription, saved meetings, and settings are unchanged.
 
@@ -52,7 +73,7 @@ Live text appears in batches, not word by word. If updates are too slow, choose 
 
 ## Saved-folder shortcuts introduced in 0.3.1 beta
 
-The bottom of the app now shows **Saved in:** followed by the actual folder path on your computer. Click **Open Saved Meetings** at any time to browse all your dated meeting folders, even just after opening the app. Each folder contains the recording, transcript, organized notes, and your typed notes. **Open Meeting Folder** still opens the current meeting after processing finishes.
+Hover over **Saved Meetings** to see **Saved in:** followed by the actual folder path on your computer. Choose **Saved Meetings → Open all saved meetings** at any time to browse all your dated meeting folders, even just after opening the app. Each folder contains the recording, transcript, organized notes, and your typed notes. **Saved Meetings → Open this meeting's folder** opens the current meeting after processing finishes.
 
 By default, the location is `Documents\Meeting Notes` inside your user folder. The app displays its exact save path, which is useful if you also have a separate Documents folder managed by OneDrive. This update does not move existing recordings or notes.
 
@@ -66,7 +87,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.8 installer. Use the same installation folder as before.
+2. Run the new 0.3.11 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -106,7 +127,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.8-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.11-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
@@ -172,7 +193,7 @@ If the list says **Ollama is not running**:
 
 1. Open Ollama from the Start menu.
 2. Wait ten seconds.
-3. Return to MeetingScribe and select **Refresh Devices**.
+3. Return to MeetingScribe and select **Settings → Refresh Devices**.
 
 If it says **Install a model with Ollama**, follow the model-installation instructions in Part 1.
 
@@ -205,7 +226,7 @@ Always make a short test first.
 9. Record for 15–30 seconds.
 10. Select **Stop & Create Notes**.
 11. Wait for transcription and note generation.
-12. Select **Open Meeting Folder**.
+12. Select **Saved Meetings → Open this meeting's folder**.
 13. Play `recording.wav` and confirm both voices are audible.
 14. Check `transcript.txt` and `notes.md`.
 
@@ -259,7 +280,7 @@ Deleting a meeting folder removes its recording, transcript, notes, and metadata
 
 ## Customize the note format
 
-1. Select **Customize Summary**.
+1. Select **Settings → Customize Summary…**.
 2. MeetingScribe shows its template-file location.
 3. Edit and save the instructions.
 4. Select the saved template when asked.
@@ -275,7 +296,7 @@ Useful instructions might request risks and blockers, separate customer question
 - Check **Windows Settings → Privacy & security → Microphone**.
 - Close other audio tools that may control the device.
 - Reopen MeetingScribe after connecting a new headset.
-- Select **Refresh Devices**.
+- Select **Settings → Refresh Devices**.
 
 ### The Others meter does not move
 
@@ -299,7 +320,7 @@ Return to the test procedure and verify both meters move. Restart MeetingScribe 
 
 ### Ollama is not running
 
-Open Ollama from Start, wait ten seconds, and select **Refresh Devices**. Restart Windows if necessary.
+Open Ollama from Start, wait ten seconds, and select **Settings → Refresh Devices**. Restart Windows if necessary.
 
 ### No Ollama models appear
 
@@ -361,7 +382,7 @@ Open Windows Terminal and run the same pull command again, for example:
 ollama pull qwen3:8b
 ```
 
-Restart MeetingScribe and select **Refresh Devices**.
+Restart MeetingScribe and select **Settings → Refresh Devices**.
 
 ## Uninstalling MeetingScribe
 

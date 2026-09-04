@@ -8,7 +8,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 
 | Tool | What it does | Source | Download |
 |---|---|---|---|
-| MeetingScribe | Local meeting notes with Eco live transcription, optional voice cleanup, pastel themes, and a theme-friendly character icon | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.3.8-beta/MeetingScribe-0.3.8-beta-One-Click-Windows-Setup.exe) |
+| MeetingScribe | Local meeting notes with Eco live transcription, optional voice cleanup, pastel themes, in-app updates, and a simplified interface | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.3.11-beta/MeetingScribe-0.3.11-beta-One-Click-Windows-Setup.exe) |
 
 ## Browser extensions
 
