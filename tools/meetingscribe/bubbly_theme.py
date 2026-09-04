@@ -1,6 +1,9 @@
 """Lightweight rounded styling: no animations, effects, or background work."""
 
 COMMON = """
+QMenu { border: 1px solid; border-radius: 12px; padding: 6px; }
+QMenu::item { padding: 9px 20px 9px 28px; border-radius: 7px; }
+QMenu::separator { height: 1px; margin: 5px 10px; }
 QLabel#brandTitle { font-family: "Segoe UI Variable Display", "Segoe UI"; font-size: 31px; font-weight: 800; }
 QLabel#sectionTitle { font-size: 16px; }
 QFrame#card, QFrame#workspaceCard { border-radius: 23px; }
@@ -10,6 +13,8 @@ QComboBox, QSpinBox { border-radius: 16px; padding-left: 13px; padding-right: 24
 QComboBox::drop-down { border: none; width: 24px; }
 QPlainTextEdit { border-radius: 17px; padding: 12px; }
 QPushButton { border-radius: 20px; padding: 4px 15px; }
+QPushButton#settingsButton { padding-right: 28px; }
+QPushButton#settingsButton::menu-indicator { subcontrol-position: center right; subcontrol-origin: padding; right: 10px; }
 QPushButton#recordButton { border-radius: 27px; font-size: 16px; }
 QLabel#timer { border-radius: 22px; }
 QLabel#statusPill { border-radius: 16px; }
@@ -23,6 +28,10 @@ QPushButton:focus, QComboBox:focus, QSpinBox:focus { border: 2px solid #8a67c7; 
 """
 
 LIGHT = """
+QMenu { background: #fffcff; color: #34264d; border-color: #d9cce3; }
+QMenu::item:selected { background: #e5d5fc; }
+QMenu::item:disabled { color: #8a7e91; }
+QMenu::separator { background: #e5dce7; }
 QWidget { color: #34264d; }
 QMainWindow, QWidget#appRoot, QStatusBar { background: #fff8f2; }
 QLabel#brandTitle, QLabel#sectionTitle { color: #34264d; }
@@ -56,6 +65,10 @@ QToolTip { background: #fff8f2; color: #34264d; border: 1px solid #d9cce3; }
 """
 
 DARK = """
+QMenu { background: #302a40; color: #f0e8fa; border-color: #5e4873; }
+QMenu::item:selected { background: #59446f; }
+QMenu::item:disabled { color: #ad9bb9; }
+QMenu::separator { background: #51445f; }
 QWidget { color: #f0e8fa; }
 QMainWindow, QWidget#appRoot, QStatusBar { background: #211d30; }
 QLabel#brandTitle, QLabel#sectionTitle { color: #f5ebff; }

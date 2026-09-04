@@ -1,5 +1,5 @@
 #define MyAppName "MeetingScribe"
-#define MyAppVersion "0.3.8-beta"
+#define MyAppVersion "0.3.11-beta"
 #define MyAppPublisher "MeetingScribe Community Beta"
 #define MyAppExeName "MeetingScribe.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
 OutputDir=installer-output
-OutputBaseFilename=MeetingScribe-0.3.8-beta-One-Click-Windows-Setup
+OutputBaseFilename=MeetingScribe-0.3.11-beta-One-Click-Windows-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -22,6 +22,9 @@ SetupIconFile=assets\meetingscribe-icon.ico
 UninstallDisplayIcon={app}\MeetingScribe-character-transparent.ico
 LicenseFile=LICENSE.txt
 InfoBeforeFile=README.md
+AppMutex=Local\MeetingScribe.UpdateSafety
+CloseApplications=no
+RestartApplications=no
 
 [Files]
 Source: "dist\MeetingScribe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -35,14 +38,67 @@ Name: "{autodesktop}\MeetingScribe"; Filename: "{app}\{#MyAppExeName}"; IconFile
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch MeetingScribe"; Flags: nowait postinstall skipifsilent; Check: DependenciesAreReady
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: IsAppUpdate
 
 [Code]
 var
   DependencySetupSucceeded: Boolean;
 
+function UpdateOpenProcess(Access: LongWord; Inherit: Boolean; PID: LongWord): LongWord;
+  external 'OpenProcess@kernel32.dll stdcall';
+function UpdateWaitForProcess(Handle: LongWord; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function UpdateCloseHandle(Handle: LongWord): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+function UpdateLastError: LongWord;
+  external 'GetLastError@kernel32.dll stdcall';
+
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATEONLY|0}') = '1';
+end;
+
+function InitializeSetup: Boolean;
+var
+  PID: Integer;
+  ProcessHandle: LongWord;
+  WaitResult: LongWord;
+begin
+  Result := True;
+  if not IsAppUpdate then Exit;
+  PID := StrToIntDef(ExpandConstant('{param:UPDATEPID|0}'), 0);
+  if (PID <= 0) or not FileExists(AddBackslash(ExpandConstant('{param:UPDATEFROM|}')) + '{#MyAppExeName}') then
+  begin
+    MsgBox('This update needs an existing MeetingScribe installation. Use the normal installer instead.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  ProcessHandle := UpdateOpenProcess($00100000, False, PID);
+  if ProcessHandle = 0 then
+  begin
+    { Error 87 means the original process has already exited. }
+    Result := UpdateLastError = 87;
+  end
+  else
+  begin
+    WaitResult := UpdateWaitForProcess(ProcessHandle, 30000);
+    UpdateCloseHandle(ProcessHandle);
+    Result := WaitResult = 0;
+  end;
+  if not Result then
+    MsgBox('MeetingScribe has not closed safely. The update was cancelled. Close the app and try again.', mbError, MB_OK);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if IsAppUpdate and (CompareText(ExpandFileName(ExpandConstant('{param:UPDATEFROM|}')), ExpandFileName(ExpandConstant('{app}'))) <> 0) then
+    Result := 'The update destination does not match the existing app. Please use the normal installer.';
+end;
+
 function DependenciesAreReady: Boolean;
 begin
-  Result := DependencySetupSucceeded;
+  Result := DependencySetupSucceeded and not IsAppUpdate;
 end;
 
 procedure DependencyError(const Details: String);
@@ -65,6 +121,9 @@ begin
     Exit;
 
   DependencySetupSucceeded := True;
+  { An in-app update replaces the app only. Preserve existing AI models and
+    services without downloading or restarting them. }
+  if IsAppUpdate then Exit;
   OllamaExe := ExpandConstant('{localappdata}\Programs\Ollama\ollama.exe');
 
   if not FileExists(OllamaExe) then

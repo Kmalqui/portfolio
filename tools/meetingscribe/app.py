@@ -5,6 +5,7 @@ import os
 import queue
 import re
 import sys
+import subprocess
 import threading
 from contextlib import ExitStack
 from dataclasses import asdict
@@ -20,8 +21,9 @@ import soundfile as sf
 from faster_whisper import WhisperModel
 from audio_cleanup import CleanupSettings, VoiceCleanup
 import bubbly_theme
+import updater
 from PySide6.QtCore import QObject, QRectF, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPalette, QPen
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractButton,
@@ -35,6 +37,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -43,14 +46,13 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QSpinBox,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.8-beta"
+APP_VERSION = "0.3.11-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -627,6 +629,13 @@ class MeetingScribeWindow(QMainWindow):
         self.current_audio: Path | None = None
         self.worker_thread: QThread | None = None
         self.live_transcriber: LiveTranscriber | None = None
+        self._update_checking = False
+        self._update_downloading = False
+        self._available_update = None
+        self.update_jobs = updater.UpdateJobs(self)
+        self.update_jobs.checked.connect(self.update_checked)
+        self.update_jobs.downloaded.connect(self.update_downloaded)
+        self.update_jobs.progress.connect(self.update_progress)
 
         self._build_ui()
         self.refresh_devices()
@@ -836,12 +845,8 @@ class MeetingScribeWindow(QMainWindow):
         self.duration.setObjectName("timer")
         self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
-        self.open_folder_button = QPushButton("Open Meeting Folder")
-        self.open_folder_button.clicked.connect(self.open_meeting_folder)
-        self.open_folder_button.setEnabled(False)
         controls.addWidget(self.record_button, 1)
         controls.addWidget(self.duration)
-        controls.addWidget(self.open_folder_button)
         layout.addLayout(controls)
 
         self.status_label = QLabel("Ready — audio never leaves this computer.")
@@ -929,20 +934,38 @@ class MeetingScribeWindow(QMainWindow):
         self.save_button = QPushButton("Save Notes")
         self.save_button.clicked.connect(self.save_notes)
         self.save_button.setEnabled(False)
-        self.template_button = QPushButton("Customize Summary")
-        self.template_button.clicked.connect(self.edit_template)
-        self.saved_meetings_button = QPushButton("Open Saved Meetings")
+        self.saved_meetings_button = QPushButton("Saved Meetings")
+        self.saved_meetings_button.setObjectName("settingsButton")
         self.saved_meetings_button.setToolTip(
-            "Open all dated meeting folders, including notes from previous sessions."
+            f"Saved in: {default_output_dir(create=False)}\nOpen all dated meeting folders."
         )
-        self.saved_meetings_button.clicked.connect(self.open_saved_meetings)
-        refresh_button = QPushButton("Refresh Devices")
-        refresh_button.clicked.connect(self.refresh_all)
+        self.saved_meetings_menu = QMenu(self.saved_meetings_button)
+        self.all_meetings_action = self.saved_meetings_menu.addAction("Open all saved meetings", self.open_saved_meetings)
+        self.current_meeting_action = self.saved_meetings_menu.addAction("Open this meeting's folder", self.open_meeting_folder)
+        self.current_meeting_action.setEnabled(False)
+        self.saved_meetings_button.setMenu(self.saved_meetings_menu)
         bottom.addWidget(self.save_button)
-        bottom.addWidget(self.template_button)
         bottom.addWidget(self.saved_meetings_button)
         bottom.addStretch()
-        bottom.addWidget(refresh_button)
+        self.settings_button = QPushButton("Settings")
+        self.settings_button.setObjectName("settingsButton")
+        self.settings_menu = QMenu(self.settings_button)
+        self.settings_menu.addAction("Customize Summary…", self.edit_template)
+        self.settings_menu.addAction("Refresh Devices", self.refresh_all)
+        self.settings_menu.addSeparator()
+        self.update_action = self.settings_menu.addAction("Check for updates", self.update_clicked)
+        self.auto_update_action = QAction("Check for updates on startup", self.settings_menu)
+        self.auto_update_action.setCheckable(True)
+        self.auto_update_action.setChecked(self.settings.value("check_updates", True, type=bool))
+        self.auto_update_action.setToolTip("Contact GitHub when the app opens. Meeting content is never sent.")
+        self.auto_update_action.toggled.connect(lambda enabled: self.settings.setValue("check_updates", enabled))
+        self.settings_menu.addAction(self.auto_update_action)
+        self.settings_menu.addSeparator()
+        version_label = self.settings_menu.addAction(f"MeetingScribe {APP_VERSION}")
+        version_label.setEnabled(False)
+        self.settings_menu.setToolTipsVisible(True)
+        self.settings_button.setMenu(self.settings_menu)
+        bottom.addWidget(self.settings_button)
         layout.addLayout(bottom)
 
         scroll = QScrollArea()
@@ -950,13 +973,149 @@ class MeetingScribeWindow(QMainWindow):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(root)
         self.setCentralWidget(scroll)
-        self.setStatusBar(QStatusBar())
-        self.save_location_label = QLabel(f"Saved in: {default_output_dir(create=False)}")
-        self.save_location_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.save_location_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.save_location_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.save_location_label.setToolTip(self.save_location_label.text())
-        self.statusBar().addWidget(self.save_location_label, 1)
+
+    def update_busy(self):
+        return bool(self.recording or self.record_button.property("processing")
+                    or (self.worker_thread and self.worker_thread.isRunning())
+                    or (self.live_transcriber and self.live_transcriber.is_running()))
+
+    def startup_updates(self):
+        self.restore_update_draft()
+        if self.auto_update_action.isChecked():
+            self.check_updates(manual=False)
+
+    def update_clicked(self):
+        if self._update_downloading:
+            self.update_jobs.cancel.set()
+            self.update_action.setText("Cancelling…")
+        elif self._available_update:
+            self.offer_update()
+        else:
+            self.check_updates(manual=True)
+
+    def check_updates(self, manual=False):
+        if self._update_checking or self._update_downloading:
+            return
+        self._update_checking = True
+        self.update_action.setEnabled(False)
+        self.update_action.setText("Checking…")
+        self.update_jobs.check(APP_VERSION, manual)
+
+    def update_checked(self, release, error, manual):
+        self._update_checking = False
+        self.update_action.setEnabled(True)
+        self._available_update = release
+        self.settings_button.setText("Settings · Update" if release else "Settings")
+        self.update_action.setText("Update available" if release else "Check for updates")
+        if error:
+            if manual:
+                QMessageBox.information(self, "Updates", error)
+        elif release:
+            # Never interrupt a meeting with a modal dialog. The button remains
+            # available for later, without a second check or forced restart.
+            if not self.update_busy():
+                self.offer_update()
+        elif manual:
+            QMessageBox.information(self, "Updates", f"You're up to date ({APP_VERSION}).")
+
+    def offer_update(self):
+        if self.update_busy():
+            QMessageBox.information(self, "Updates", "Finish recording and transcription before installing an update.")
+            return
+        if not self._available_update or self._update_downloading:
+            return
+        if sys.platform != "win32" or not getattr(sys, "frozen", False):
+            QMessageBox.information(self, "Updates", "In-app installation is available in the installed Windows app. Source installations should update from GitHub.")
+            return
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("A new MeetingScribe is ready")
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(f"Version {self._available_update.version} is available.\n\nDownload, verify, and restart to install. Your notes and settings will be kept. Windows may show a security warning because this beta is unsigned.")
+        install = dialog.addButton("Install and restart", QMessageBox.ButtonRole.AcceptRole)
+        later = dialog.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(later)
+        dialog.exec()
+        if dialog.clickedButton() != install or self.update_busy():
+            return
+        self._update_downloading = True
+        self.settings_button.setText("Updating…")
+        self.record_button.setEnabled(False)
+        self.consent_checkbox.setEnabled(False)
+        self.update_action.setText("Cancel download")
+        self.update_jobs.download(self._available_update, app_data_dir() / "updates")
+
+    def update_progress(self, percent):
+        self.update_action.setText(f"Cancel download ({percent}%)")
+
+    def update_downloaded(self, path, error):
+        self._update_downloading = False
+        self.update_action.setText("Update available")
+        self.settings_button.setText("Settings · Update")
+        self.consent_checkbox.setEnabled(True)
+        self.record_button.setEnabled(self.consent_checkbox.isChecked() and not self.update_busy())
+        if error or self.update_jobs.cancel.is_set():
+            QMessageBox.information(self, "Update not installed", error or "Download cancelled.")
+            return
+        if self.update_busy():
+            QMessageBox.information(self, "Updates", "Your meeting is still active. Install the update after it finishes.")
+            return
+        draft_saved = False
+        try:
+            updater.verify_file(path, self._available_update)
+            self.save_update_draft()
+            draft_saved = True
+            self.launch_update(path)
+        except Exception:
+            QMessageBox.warning(self, "Update not installed", "The update could not start safely. Your app is still open. Try again later or use the website installer.")
+            # Do not restore a stale snapshot over later edits after a failed launch.
+            try:
+                if draft_saved:
+                    (app_data_dir() / "update-draft.json").unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        self.close()
+
+    def launch_update(self, path):
+        if sys.platform != "win32" or not getattr(sys, "frozen", False):
+            raise RuntimeError("Installed Windows app required")
+        install_dir = str(Path(sys.executable).resolve().parent)
+        subprocess.Popen([str(path), "/SILENT", "/NORESTART", "/NOCLOSEAPPLICATIONS",
+                          "/NORESTARTAPPLICATIONS", "/UPDATEONLY=1", f"/UPDATEPID={os.getpid()}",
+                          f"/DIR={install_dir}", f"/UPDATEFROM={install_dir}"], shell=False)
+
+    def save_update_draft(self):
+        # Keep pre-meeting text as well as edits to an existing meeting.
+        self.save_notes()
+        draft = {"folder": str(self.current_folder) if self.current_folder else None,
+                 "personal": self.personal_notes.toPlainText(), "summary": self.notes.toPlainText(),
+                 "transcript": self.live_transcript.toPlainText()}
+        target = app_data_dir() / "update-draft.json"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(draft), encoding="utf-8")
+        temporary.replace(target)
+        self.settings.sync()
+        if self.settings.status() != self.settings.Status.NoError:
+            raise OSError("Settings could not be saved")
+
+    def restore_update_draft(self):
+        target = app_data_dir() / "update-draft.json"
+        if not target.exists():
+            return
+        try:
+            draft = json.loads(target.read_text(encoding="utf-8"))
+            self.personal_notes.setPlainText(draft["personal"])
+            self.notes.setPlainText(draft["summary"])
+            self.live_transcript.setPlainText(draft["transcript"])
+            folder = Path(draft["folder"]) if draft.get("folder") else None
+            if folder and folder.is_dir():
+                self.current_folder = folder
+                self.save_button.setEnabled(True)
+                self.current_meeting_action.setEnabled(True)
+            target.unlink()
+            self.status_label.setText("Welcome back — your notes were restored after the update.")
+        except (OSError, ValueError, KeyError, TypeError):
+            self.status_label.setText("Your update draft could not be restored; the recovery file has been kept.")
 
     def _set_record_button_state(self, state: str):
         labels = {
@@ -1090,6 +1249,8 @@ class MeetingScribeWindow(QMainWindow):
             self.start_recording()
 
     def start_recording(self):
+        if self._update_downloading:
+            return
         if not self.consent_checkbox.isChecked():
             self.show_error(
                 "Confirm that participants have been informed and that you have permission to record."
@@ -1149,7 +1310,7 @@ class MeetingScribeWindow(QMainWindow):
         self.status_label.setText("Recording microphone and meeting audio…")
         self.notes.clear()
         self.save_button.setEnabled(False)
-        self.open_folder_button.setEnabled(False)
+        self.current_meeting_action.setEnabled(False)
 
     def stop_recording(self):
         self.timer.stop()
@@ -1220,7 +1381,7 @@ class MeetingScribeWindow(QMainWindow):
         self.mic_state.setText("Starts listening when recording begins")
         self.system_state.setText("Starts listening when recording begins")
         self.save_button.setEnabled(True)
-        self.open_folder_button.setEnabled(True)
+        self.current_meeting_action.setEnabled(True)
 
     def processing_failed(self, message: str):
         self.clarity_button.setEnabled(True)
@@ -1354,6 +1515,15 @@ class MeetingScribeWindow(QMainWindow):
         QMessageBox.critical(self, "MeetingScribe", message)
 
     def closeEvent(self, event):
+        if self._update_downloading:
+            self.update_jobs.cancel.set()
+            QMessageBox.information(self, "Cancelling download", "The update download is cancelling. Please close the app again in a moment.")
+            event.ignore()
+            return
+        if self.update_busy() and not self.recording:
+            QMessageBox.information(self, "Meeting still processing", "Please wait for transcription and notes to finish before closing.")
+            event.ignore()
+            return
         if self.recording:
             answer = QMessageBox.question(
                 self,
@@ -1389,6 +1559,16 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName("MeetingScribe")
+    if sys.platform == "win32" and "--smoke-test" not in sys.argv:
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+        kernel.CreateMutexW.restype = wintypes.HANDLE
+        app._instance_mutex = kernel.CreateMutexW(None, False, "Local\\MeetingScribe.UpdateSafety")
+        if not app._instance_mutex or ctypes.get_last_error() == 183:
+            QMessageBox.information(None, "MeetingScribe", "MeetingScribe is already open, or Windows could not reserve its update lock. Close any other copy and try again.")
+            return 0
     icon_path = resource_path("assets/meetingscribe-icon.ico")
     if not icon_path.exists():
         icon_path = resource_path("assets/meetingscribe-icon.png")
@@ -1408,6 +1588,7 @@ def main():
     available = app.primaryScreen().availableGeometry()
     window.resize(min(1100, available.width() - 60), min(900, available.height() - 70))
     window.show()
+    QTimer.singleShot(2500, window.startup_updates)
     sys.exit(app.exec())
 
 
