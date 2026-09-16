@@ -198,8 +198,11 @@ class InterfaceTests(unittest.TestCase):
 
     def test_update_startup_preference_and_manual_check(self):
         self.window.auto_update_action.setChecked(False)
-        with patch.object(self.window, "restore_update_draft"), patch.object(self.window.update_jobs, "check") as check:
+        with patch.object(self.window, "restore_update_draft"), patch.object(
+            self.window, "start_ollama"
+        ) as start_ollama, patch.object(self.window.update_jobs, "check") as check:
             self.window.startup_updates()
+            start_ollama.assert_called_once_with(manual=False)
             check.assert_not_called()
             self.window.check_updates(manual=True)
             check.assert_called_once_with(meetingscribe.APP_VERSION, True)
@@ -213,6 +216,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("Check for updates", labels)
         self.assertIn("Screen options…", labels)
         self.assertIn("Speaker labels: off…", labels)
+        self.assertIn("Start Ollama now", labels)
+        self.assertTrue(self.window.auto_ollama_action.isChecked())
         self.assertTrue(self.window.auto_update_action.isCheckable())
         self.assertIs(self.window.settings_button.menu(), self.window.settings_menu)
         self.assertFalse(any(child.metaObject().className() == "QStatusBar" for child in self.window.children()))
@@ -232,13 +237,54 @@ class InterfaceTests(unittest.TestCase):
 
     def test_compact_screen_toggle_enables_capture_without_opening_settings(self):
         self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+        self.assertFalse(self.window.screen_combo.isVisible())
         with patch.object(meetingscribe, "available_monitors", return_value=[{"width": 1920, "height": 1080}]):
             self.window.screen_toggle.click()
         self.assertTrue(self.window.screen_options().enabled)
         self.assertEqual(self.window.screen_toggle.text(), "●  Screen record on")
+        self.assertTrue(self.window.screen_combo.isVisible())
+        self.assertEqual(self.window.screen_combo.currentData(), 1)
         self.window.screen_toggle.click()
         self.assertFalse(self.window.screen_options().enabled)
         self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+        self.assertFalse(self.window.screen_combo.isVisible())
+
+    def test_screen_picker_saves_selected_monitor(self):
+        monitors = [{"width": 1920, "height": 1080}, {"width": 2560, "height": 1440}]
+        with patch.object(meetingscribe, "available_monitors", return_value=monitors):
+            self.window.screen_toggle.click()
+            self.window.screen_combo.setCurrentIndex(1)
+        self.assertEqual(self.window.screen_options().monitor, 2)
+        self.assertIn("2560×1440", self.window.screen_combo.currentText())
+
+    def test_ollama_startup_can_be_disabled(self):
+        self.window.auto_ollama_action.setChecked(False)
+        self.window.auto_update_action.setChecked(False)
+        with patch.object(self.window, "restore_update_draft"), patch.object(
+            self.window, "start_ollama"
+        ) as start_ollama:
+            self.window.startup_updates()
+        start_ollama.assert_not_called()
+        self.assertFalse(self.test_settings.value("start_ollama", True, type=bool))
+
+    def test_start_ollama_only_launches_when_service_is_stopped(self):
+        executable = Path(self.settings_folder.name) / "ollama.exe"
+        with patch.object(self.window, "ollama_is_running", return_value=False), patch.object(
+            self.window, "ollama_executable", return_value=executable
+        ), patch.object(meetingscribe.subprocess, "Popen") as launch, patch.object(
+            meetingscribe.QTimer, "singleShot"
+        ) as later:
+            self.assertTrue(self.window.start_ollama(manual=False))
+        self.assertEqual(launch.call_args.args[0], [str(executable), "serve"])
+        self.assertEqual(launch.call_args.kwargs["stdin"], meetingscribe.subprocess.DEVNULL)
+        later.assert_called_once()
+
+        with patch.object(self.window, "ollama_is_running", return_value=True), patch.object(
+            self.window, "refresh_models"
+        ) as refresh, patch.object(meetingscribe.subprocess, "Popen") as launch:
+            self.assertTrue(self.window.start_ollama(manual=False))
+        launch.assert_not_called()
+        refresh.assert_called_once()
 
     def test_speaker_labels_default_off_and_allow_myself_plus_two(self):
         self.assertEqual(self.window.speaker_label_options(), (False, 2))

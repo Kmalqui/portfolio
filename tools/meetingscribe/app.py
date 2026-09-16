@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import sys
 import subprocess
 import threading
@@ -54,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.12-beta"
+APP_VERSION = "0.3.13-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -665,6 +666,7 @@ class MeetingScribeWindow(QMainWindow):
         self._update_checking = False
         self._update_downloading = False
         self._available_update = None
+        self._ollama_process = None
         self.update_jobs = updater.UpdateJobs(self)
         self.update_jobs.checked.connect(self.update_checked)
         self.update_jobs.downloaded.connect(self.update_downloaded)
@@ -880,12 +882,19 @@ class MeetingScribeWindow(QMainWindow):
             "Include your selected screen in this meeting. Use Settings → Screen options to change the screen or quality."
         )
         self.screen_toggle.toggled.connect(self.toggle_screen_quick)
+        self.screen_combo = QComboBox()
+        self.screen_combo.setObjectName("screenPicker")
+        self.screen_combo.setAccessibleName("Screen to record")
+        self.screen_combo.setToolTip("Choose which screen MeetingScribe will record.")
+        self.screen_combo.currentIndexChanged.connect(self.change_screen)
+        self.refresh_screen_choices()
         self.duration = QLabel("00:00:00")
         self.duration.setObjectName("timer")
         self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
         controls.addWidget(self.record_button, 1)
         controls.addWidget(self.screen_toggle)
+        controls.addWidget(self.screen_combo)
         controls.addWidget(self.duration)
         layout.addLayout(controls)
 
@@ -996,6 +1005,14 @@ class MeetingScribeWindow(QMainWindow):
         self.settings_menu.addAction("Customize Summary…", self.edit_template)
         self.settings_menu.addAction("Refresh Devices", self.refresh_all)
         self.settings_menu.addSeparator()
+        self.start_ollama_action = self.settings_menu.addAction("Start Ollama now", lambda: self.start_ollama(manual=True))
+        self.auto_ollama_action = QAction("Start Ollama with MeetingScribe", self.settings_menu)
+        self.auto_ollama_action.setCheckable(True)
+        self.auto_ollama_action.setChecked(self.settings.value("start_ollama", True, type=bool))
+        self.auto_ollama_action.setToolTip("Starts the local Ollama service when MeetingScribe opens. No models are downloaded.")
+        self.auto_ollama_action.toggled.connect(lambda enabled: self.settings.setValue("start_ollama", enabled))
+        self.settings_menu.addAction(self.auto_ollama_action)
+        self.settings_menu.addSeparator()
         self.update_action = self.settings_menu.addAction("Check for updates", self.update_clicked)
         self.auto_update_action = QAction("Check for updates on startup", self.settings_menu)
         self.auto_update_action.setCheckable(True)
@@ -1034,6 +1051,32 @@ class MeetingScribeWindow(QMainWindow):
             monitor=max(1, self.settings.value("screen_monitor", 1, type=int)),
             profile=profile,
         )
+
+    def refresh_screen_choices(self):
+        if not hasattr(self, "screen_combo"):
+            return
+        selected = self.settings.value("screen_monitor", 1, type=int)
+        self.screen_combo.blockSignals(True)
+        self.screen_combo.clear()
+        try:
+            monitors = available_monitors()
+        except Exception:
+            monitors = []
+        for number, monitor in enumerate(monitors, 1):
+            self.screen_combo.addItem(
+                f"Screen {number} · {monitor['width']}×{monitor['height']}", number
+            )
+        if not monitors:
+            self.screen_combo.addItem("No screen found", None)
+        index = self.screen_combo.findData(selected)
+        self.screen_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.screen_combo.blockSignals(False)
+        self.screen_combo.setVisible(self.screen_options().enabled)
+
+    def change_screen(self):
+        monitor = self.screen_combo.currentData()
+        if monitor is not None:
+            self.settings.setValue("screen_monitor", monitor)
 
     def speaker_label_options(self):
         return (
@@ -1105,6 +1148,13 @@ class MeetingScribeWindow(QMainWindow):
                 "Include your selected screen in this meeting. Use Settings → Screen options to change the screen or quality."
             )
             self.screen_toggle.blockSignals(False)
+        if hasattr(self, "screen_combo"):
+            self.screen_combo.setVisible(options.enabled)
+            selected = self.screen_combo.findData(options.monitor)
+            if selected >= 0:
+                self.screen_combo.blockSignals(True)
+                self.screen_combo.setCurrentIndex(selected)
+                self.screen_combo.blockSignals(False)
         self.consent_checkbox.setText(
             "I have permission to record audio and the screen."
             if options.enabled else "I have permission to record this meeting."
@@ -1123,6 +1173,7 @@ class MeetingScribeWindow(QMainWindow):
                 return
             if self.screen_options().monitor > len(monitors):
                 self.settings.setValue("screen_monitor", 1)
+            self.refresh_screen_choices()
         self.settings.setValue("screen_enabled", bool(enabled))
         self.refresh_screen_recording_label()
         self.status_label.setText(
@@ -1190,6 +1241,7 @@ class MeetingScribeWindow(QMainWindow):
         if monitor_combo.currentData() is not None:
             self.settings.setValue("screen_monitor", monitor_combo.currentData())
         self.settings.setValue("screen_profile", quality_combo.currentData())
+        self.refresh_screen_choices()
         self.refresh_screen_recording_label()
 
     def start_screen_recording(self):
@@ -1233,8 +1285,87 @@ class MeetingScribeWindow(QMainWindow):
 
     def startup_updates(self):
         self.restore_update_draft()
+        if self.auto_ollama_action.isChecked():
+            self.start_ollama(manual=False)
         if self.auto_update_action.isChecked():
             self.check_updates(manual=False)
+
+    @staticmethod
+    def ollama_executable():
+        found = shutil.which("ollama")
+        if found:
+            return Path(found)
+        candidates = []
+        if sys.platform == "win32":
+            local_app_data = os.environ.get("LOCALAPPDATA")
+            program_files = os.environ.get("ProgramFiles")
+            if local_app_data:
+                candidates.append(Path(local_app_data) / "Programs" / "Ollama" / "ollama.exe")
+            if program_files:
+                candidates.append(Path(program_files) / "Ollama" / "ollama.exe")
+        elif sys.platform == "darwin":
+            candidates.extend((
+                Path("/Applications/Ollama.app/Contents/Resources/ollama"),
+                Path("/opt/homebrew/bin/ollama"),
+                Path("/usr/local/bin/ollama"),
+            ))
+        return next((path for path in candidates if path.is_file()), None)
+
+    @staticmethod
+    def ollama_is_running(timeout=0.8):
+        try:
+            response = requests.get("http://127.0.0.1:11434/api/tags", timeout=timeout)
+            return response.ok
+        except requests.RequestException:
+            return False
+
+    def start_ollama(self, manual=False):
+        if self.ollama_is_running():
+            self.refresh_models()
+            self.status_label.setText("Ollama is ready — your AI notes stay on this computer.")
+            return True
+        executable = self.ollama_executable()
+        if not executable:
+            if manual:
+                QMessageBox.information(
+                    self,
+                    "Ollama is not installed",
+                    "MeetingScribe could not find Ollama. Run the MeetingScribe installer again or install Ollama, then choose Start Ollama now.",
+                )
+            return False
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        try:
+            self._ollama_process = subprocess.Popen([str(executable), "serve"], **kwargs)
+        except OSError as exc:
+            if manual:
+                QMessageBox.warning(self, "Could not start Ollama", str(exc))
+            return False
+        self.status_label.setText("Starting Ollama in the background…")
+        QTimer.singleShot(1200, lambda: self.finish_ollama_start(manual, 3))
+        return True
+
+    def finish_ollama_start(self, manual=False, attempts_left=0):
+        if self.ollama_is_running():
+            self.refresh_models()
+            self.status_label.setText("Ollama is ready — your AI notes stay on this computer.")
+            return
+        if attempts_left > 0:
+            QTimer.singleShot(1200, lambda: self.finish_ollama_start(manual, attempts_left - 1))
+            return
+        self.refresh_models()
+        self.status_label.setText("Ollama did not start. Open Settings and choose Start Ollama now.")
+        if manual:
+            QMessageBox.warning(
+                self,
+                "Ollama did not start",
+                "Open Ollama once from the Start menu, then return to MeetingScribe and try again.",
+            )
 
     def update_clicked(self):
         if self._update_downloading:
@@ -1384,6 +1515,7 @@ class MeetingScribeWindow(QMainWindow):
     def refresh_all(self):
         self.refresh_devices()
         self.refresh_models()
+        self.refresh_screen_choices()
 
     def refresh_devices(self):
         prior_mic = self.settings.value("microphone_id", "")
