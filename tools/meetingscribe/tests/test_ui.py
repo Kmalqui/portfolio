@@ -239,23 +239,26 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
         self.assertFalse(self.window.screen_combo.isVisible())
         with patch.object(meetingscribe, "available_monitors", return_value=[{"width": 1920, "height": 1080}]):
-            self.window.screen_toggle.click()
+            self.window.choose_capture(1)
         self.assertTrue(self.window.screen_options().enabled)
         self.assertEqual(self.window.screen_toggle.text(), "●  Screen record on")
-        self.assertTrue(self.window.screen_combo.isVisible())
+        self.assertFalse(self.window.screen_combo.isVisible())
+        self.assertEqual(self.window.capture_button.text(), "Screen 1")
         self.assertEqual(self.window.screen_combo.currentData(), 1)
-        self.window.screen_toggle.click()
+        self.window.choose_capture()
         self.assertFalse(self.window.screen_options().enabled)
         self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+        self.assertEqual(self.window.capture_button.text(), "Audio only")
         self.assertFalse(self.window.screen_combo.isVisible())
 
     def test_screen_picker_saves_selected_monitor(self):
         monitors = [{"width": 1920, "height": 1080}, {"width": 2560, "height": 1440}]
         with patch.object(meetingscribe, "available_monitors", return_value=monitors):
-            self.window.screen_toggle.click()
-            self.window.screen_combo.setCurrentIndex(1)
+            self.window.refresh_screen_choices()
+            self.window.choose_capture(2)
         self.assertEqual(self.window.screen_options().monitor, 2)
         self.assertIn("2560×1440", self.window.screen_combo.currentText())
+        self.assertEqual(self.window.capture_button.text(), "Screen 2")
 
     def test_ollama_startup_can_be_disabled(self):
         self.window.auto_ollama_action.setChecked(False)
@@ -303,23 +306,35 @@ class InterfaceTests(unittest.TestCase):
     def test_transcript_can_expand_minimize_and_restore(self):
         original = self.window.workspace.sizes()
         self.assertTrue(all(original))
-        self.window.transcript_expand_button.click()
+        self.window.resize_transcript("expanded")
         self.qt.processEvents()
         self.assertEqual(self.window.transcript_view, "expanded")
-        self.assertEqual(self.window.transcript_expand_button.text(), "Restore")
+        self.assertEqual(self.window.transcript_view_button.text(), "View · Full")
         self.assertEqual(self.window.workspace.sizes()[1], 0)
-        self.window.transcript_expand_button.click()
+        self.window.resize_transcript("normal")
         self.qt.processEvents()
         self.assertEqual(self.window.transcript_view, "normal")
         self.assertTrue(all(self.window.workspace.sizes()))
-        self.window.transcript_minimize_button.click()
+        self.window.resize_transcript("minimized")
         self.qt.processEvents()
         minimized = self.window.workspace.sizes()
         self.assertEqual(self.window.transcript_view, "minimized")
-        self.assertEqual(self.window.transcript_minimize_button.text(), "Restore")
+        self.assertEqual(self.window.transcript_view_button.text(), "View · Compact")
         self.assertLess(minimized[0], minimized[1])
-        self.window.transcript_minimize_button.click()
+        self.window.resize_transcript("normal")
         self.assertEqual(self.window.transcript_view, "normal")
+
+    def test_sleek_nav_replaces_individual_transcript_and_capture_controls(self):
+        self.assertTrue(self.window.capture_button.isVisible())
+        self.assertFalse(self.window.screen_toggle.isVisible())
+        self.assertFalse(self.window.screen_combo.isVisible())
+        self.assertTrue(self.window.transcript_options_button.isVisible())
+        self.assertIn("Eco", self.window.transcript_options_button.text())
+        self.assertIn("Speakers off", self.window.transcript_options_button.text())
+        self.assertFalse(self.window.live_mode_combo.isVisible())
+        self.assertFalse(self.window.speaker_labels_combo.isVisible())
+        self.assertFalse(self.window.transcript_minimize_button.isVisible())
+        self.assertFalse(self.window.transcript_expand_button.isVisible())
 
     def test_recording_can_pause_and_resume_without_stopping(self):
         self.window.recording = True

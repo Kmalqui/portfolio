@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.15-beta"
+APP_VERSION = "0.3.16-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -90,6 +90,11 @@ QFrame#consentCard {
     background: #fff8e8;
     border: 1px solid #ead39a;
     border-radius: 12px;
+}
+QFrame#commandDock {
+    background: #e8eee8;
+    border: 1px solid #d4ded5;
+    border-radius: 14px;
 }
 QLabel#consentTitle { color: #765612; font-weight: 700; }
 QComboBox, QSpinBox {
@@ -138,6 +143,17 @@ QPushButton#recordButton:hover { background: #aed94c; }
 QPushButton#recordButton:disabled { background: #e0e9cf; color: #738365; }
 QPushButton#recordButton[recording="true"] { background: #dc5b55; color: #ffffff; }
 QPushButton#recordButton[processing="true"] { background: #315c4d; color: #ffffff; }
+QPushButton#commandButton {
+    min-height: 46px;
+    padding: 3px 16px;
+    border-radius: 10px;
+}
+QPushButton#transcriptNav {
+    min-height: 28px;
+    padding: 1px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+}
 QLabel#timer {
     min-width: 112px;
     padding: 8px 12px;
@@ -182,6 +198,7 @@ QLabel#fieldLabel { color: #d1e1d6; }
 QFrame#card, QFrame#workspaceCard { background: #202d26; border-color: #3a4e40; }
 QFrame#meterPanel { background: #19251f; border-color: #3a4e40; }
 QFrame#consentCard { background: #332d1d; border-color: #71613a; }
+QFrame#commandDock { background: #1b2821; border-color: #3a4e40; }
 QLabel#consentTitle, QCheckBox { color: #f2d68e; }
 QComboBox, QSpinBox, QPlainTextEdit { background: #17221c; color: #e4eee8; border-color: #4b6051; selection-background-color: #436729; selection-color: #ffffff; }
 QComboBox QAbstractItemView { background: #202d26; color: #e4eee8; selection-background-color: #436729; }
@@ -884,7 +901,10 @@ class MeetingScribeWindow(QMainWindow):
         overview.addLayout(readiness, 1)
         layout.addLayout(overview)
 
-        controls = QHBoxLayout()
+        command_dock = QFrame()
+        command_dock.setObjectName("commandDock")
+        controls = QHBoxLayout(command_dock)
+        controls.setContentsMargins(7, 7, 7, 7)
         controls.setSpacing(10)
         self.record_button = QPushButton("●  Start Recording")
         self.record_button.setObjectName("recordButton")
@@ -892,7 +912,7 @@ class MeetingScribeWindow(QMainWindow):
         self.record_button.clicked.connect(self.toggle_recording)
         self.consent_checkbox.toggled.connect(self.record_button.setEnabled)
         self.pause_button = QPushButton("Ⅱ  Pause")
-        self.pause_button.setObjectName("pauseButton")
+        self.pause_button.setObjectName("commandButton")
         self.pause_button.setAccessibleName("Pause recording")
         self.pause_button.setToolTip("Pause audio, screen recording, and live transcription without ending this meeting.")
         self.pause_button.setEnabled(False)
@@ -911,16 +931,22 @@ class MeetingScribeWindow(QMainWindow):
         self.screen_combo.setToolTip("Choose which screen MeetingScribe will record.")
         self.screen_combo.currentIndexChanged.connect(self.change_screen)
         self.refresh_screen_choices()
+        self.capture_button = QPushButton("Audio only")
+        self.capture_button.setObjectName("commandButton")
+        self.capture_button.setAccessibleName("Capture options")
+        self.capture_button.setToolTip("Choose audio only or select a screen to include.")
+        self.capture_menu = QMenu(self.capture_button)
+        self.capture_button.setMenu(self.capture_menu)
+        self.refresh_capture_menu()
         self.duration = QLabel("00:00:00")
         self.duration.setObjectName("timer")
         self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
         controls.addWidget(self.record_button, 1)
         controls.addWidget(self.pause_button)
-        controls.addWidget(self.screen_toggle)
-        controls.addWidget(self.screen_combo)
+        controls.addWidget(self.capture_button)
         controls.addWidget(self.duration)
-        layout.addLayout(controls)
+        layout.addWidget(command_dock)
 
         self.status_label = QLabel("Ready — audio never leaves this computer.")
         self.status_label.setObjectName("statusPill")
@@ -939,7 +965,7 @@ class MeetingScribeWindow(QMainWindow):
         transcript_label.setObjectName("fieldLabel")
         transcript_header = QHBoxLayout()
         transcript_header.addWidget(transcript_label, 1)
-        self.live_mode_combo = QComboBox()
+        self.live_mode_combo = QComboBox(transcript_panel)
         self.live_mode_combo.setObjectName("liveMode")
         self.live_mode_combo.addItem("Eco — lowest load", "eco")
         self.live_mode_combo.addItem("Balanced — clearer preview", "balanced")
@@ -948,9 +974,9 @@ class MeetingScribeWindow(QMainWindow):
         self.live_mode_combo.setCurrentIndex(max(0, saved_live_mode))
         self.live_mode_combo.setAccessibleName("Live transcription resource use")
         self.live_mode_combo.setToolTip("Eco uses a smaller CPU model and updates about every 12 seconds when it can keep up. Balanced uses a larger preview model. Final transcription quality is unchanged. Choose before recording.")
-        self.live_mode_combo.currentIndexChanged.connect(lambda: self.settings.setValue("live_mode", self.live_mode_combo.currentData()))
-        transcript_header.addWidget(self.live_mode_combo)
-        self.speaker_labels_combo = QComboBox()
+        self.live_mode_combo.currentIndexChanged.connect(self.change_live_mode)
+        self.live_mode_combo.hide()
+        self.speaker_labels_combo = QComboBox(transcript_panel)
         self.speaker_labels_combo.setAccessibleName("Final transcript speaker labels")
         self.speaker_labels_combo.setToolTip(
             "Adds Myself and Speaker labels to the final transcript after recording stops. The live preview remains unlabeled."
@@ -965,15 +991,31 @@ class MeetingScribeWindow(QMainWindow):
             self.speaker_labels_combo.findData(other_speakers if enabled else 0)
         )
         self.speaker_labels_combo.currentIndexChanged.connect(self.change_speaker_labels)
-        transcript_header.addWidget(self.speaker_labels_combo)
-        self.transcript_minimize_button = QPushButton("Minimize")
+        self.speaker_labels_combo.hide()
+        self.transcript_options_button = QPushButton()
+        self.transcript_options_button.setObjectName("transcriptNav")
+        self.transcript_options_button.setAccessibleName("Transcript options")
+        self.transcript_options_menu = QMenu(self.transcript_options_button)
+        self.transcript_options_button.setMenu(self.transcript_options_menu)
+        transcript_header.addWidget(self.transcript_options_button)
+        self.transcript_minimize_button = QPushButton("Minimize", transcript_panel)
         self.transcript_minimize_button.setToolTip("Shrink the live transcript to make more room for your notes.")
         self.transcript_minimize_button.clicked.connect(lambda: self.resize_transcript("minimized"))
-        transcript_header.addWidget(self.transcript_minimize_button)
-        self.transcript_expand_button = QPushButton("Expand")
+        self.transcript_minimize_button.hide()
+        self.transcript_expand_button = QPushButton("Expand", transcript_panel)
         self.transcript_expand_button.setToolTip("Expand the live transcript for easier reading.")
         self.transcript_expand_button.clicked.connect(lambda: self.resize_transcript("expanded"))
-        transcript_header.addWidget(self.transcript_expand_button)
+        self.transcript_expand_button.hide()
+        self.transcript_view_button = QPushButton("View · Balanced")
+        self.transcript_view_button.setObjectName("transcriptNav")
+        self.transcript_view_button.setAccessibleName("Transcript size")
+        view_menu = QMenu(self.transcript_view_button)
+        view_menu.addAction("Full transcript", lambda: self.resize_transcript("expanded"))
+        view_menu.addAction("Balanced layout", lambda: self.resize_transcript("normal"))
+        view_menu.addAction("Compact transcript", lambda: self.resize_transcript("minimized"))
+        self.transcript_view_button.setMenu(view_menu)
+        transcript_header.addWidget(self.transcript_view_button)
+        self.refresh_transcript_menu()
         transcript_layout.addLayout(transcript_header)
         transcript_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.live_transcript = NotesEditor()
@@ -1124,12 +1166,98 @@ class MeetingScribeWindow(QMainWindow):
         index = self.screen_combo.findData(selected)
         self.screen_combo.setCurrentIndex(index if index >= 0 else 0)
         self.screen_combo.blockSignals(False)
-        self.screen_combo.setVisible(self.screen_options().enabled)
+        self.screen_combo.hide()
+        if hasattr(self, "capture_button"):
+            self.refresh_capture_menu()
 
     def change_screen(self):
         monitor = self.screen_combo.currentData()
         if monitor is not None:
             self.settings.setValue("screen_monitor", monitor)
+            if hasattr(self, "capture_button"):
+                self.refresh_capture_menu()
+
+    def choose_capture(self, monitor=None):
+        if monitor is None:
+            self.screen_toggle.setChecked(False)
+            return
+        self.settings.setValue("screen_monitor", monitor)
+        self.screen_toggle.setChecked(True)
+        self.refresh_screen_recording_label()
+
+    def refresh_capture_menu(self):
+        if not hasattr(self, "capture_menu"):
+            return
+        options = self.screen_options()
+        self.capture_menu.clear()
+        audio_only = self.capture_menu.addAction("Audio only")
+        audio_only.setCheckable(True)
+        audio_only.setChecked(not options.enabled)
+        audio_only.triggered.connect(lambda _checked=False: self.choose_capture())
+        self.capture_menu.addSection("Include a screen")
+        for index in range(self.screen_combo.count()):
+            monitor = self.screen_combo.itemData(index)
+            if monitor is None:
+                continue
+            action = self.capture_menu.addAction(self.screen_combo.itemText(index))
+            action.setCheckable(True)
+            action.setChecked(options.enabled and monitor == options.monitor)
+            action.triggered.connect(
+                lambda _checked=False, selected=monitor: self.choose_capture(selected)
+            )
+        self.capture_menu.addSeparator()
+        self.capture_menu.addAction("Screen quality…", self.configure_screen_recording)
+        self.capture_button.setText(
+            f"Screen {options.monitor}" if options.enabled else "Audio only"
+        )
+
+    def change_live_mode(self):
+        self.settings.setValue("live_mode", self.live_mode_combo.currentData())
+        if hasattr(self, "transcript_options_button"):
+            self.refresh_transcript_menu()
+
+    def choose_live_mode(self, mode):
+        self.live_mode_combo.setCurrentIndex(self.live_mode_combo.findData(mode))
+
+    def choose_speaker_labels(self, others):
+        self.speaker_labels_combo.setCurrentIndex(
+            self.speaker_labels_combo.findData(others)
+        )
+
+    def refresh_transcript_menu(self):
+        if not hasattr(self, "transcript_options_menu"):
+            return
+        menu = self.transcript_options_menu
+        menu.clear()
+        menu.addSection("Live preview")
+        live_labels = {
+            "eco": "Eco — lowest load",
+            "balanced": "Balanced — clearer preview",
+            "off": "Off — final transcript only",
+        }
+        live_mode = self.live_mode_combo.currentData()
+        for mode, label in live_labels.items():
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(mode == live_mode)
+            action.triggered.connect(
+                lambda _checked=False, selected=mode: self.choose_live_mode(selected)
+            )
+        menu.addSection("Final speaker labels")
+        enabled, others = self.speaker_label_options()
+        for count in range(5):
+            label = "Off" if count == 0 else f"Myself + {count} other"
+            if count > 1:
+                label += "s"
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked((others if enabled else 0) == count)
+            action.triggered.connect(
+                lambda _checked=False, selected=count: self.choose_speaker_labels(selected)
+            )
+        preview = "Eco" if live_mode == "eco" else ("Balanced" if live_mode == "balanced" else "Preview off")
+        speakers = f"Myself + {others}" if enabled else "Speakers off"
+        self.transcript_options_button.setText(f"{preview} · {speakers}")
 
     def speaker_label_options(self):
         return (
@@ -1146,6 +1274,7 @@ class MeetingScribeWindow(QMainWindow):
                 "Speaker labels will appear in the final transcript after recording stops."
             )
         self.refresh_speaker_label()
+        self.refresh_transcript_menu()
 
     def resize_transcript(self, view):
         if view == self.transcript_view:
@@ -1163,6 +1292,9 @@ class MeetingScribeWindow(QMainWindow):
         self.transcript_view = view
         self.transcript_expand_button.setText("Restore" if view == "expanded" else "Expand")
         self.transcript_minimize_button.setText("Restore" if view == "minimized" else "Minimize")
+        if hasattr(self, "transcript_view_button"):
+            labels = {"expanded": "View · Full", "minimized": "View · Compact", "normal": "View · Balanced"}
+            self.transcript_view_button.setText(labels[view])
 
     def refresh_speaker_label(self):
         enabled, others = self.speaker_label_options()
@@ -1235,12 +1367,14 @@ class MeetingScribeWindow(QMainWindow):
             )
             self.screen_toggle.blockSignals(False)
         if hasattr(self, "screen_combo"):
-            self.screen_combo.setVisible(options.enabled)
+            self.screen_combo.hide()
             selected = self.screen_combo.findData(options.monitor)
             if selected >= 0:
                 self.screen_combo.blockSignals(True)
                 self.screen_combo.setCurrentIndex(selected)
                 self.screen_combo.blockSignals(False)
+        if hasattr(self, "capture_button"):
+            self.refresh_capture_menu()
         self.consent_checkbox.setText(
             "I have permission to record audio and the screen."
             if options.enabled else "I have permission to record this meeting."
@@ -1800,6 +1934,7 @@ class MeetingScribeWindow(QMainWindow):
         self.paused_at = 0.0
         self.clarity_button.setEnabled(False)
         self.screen_toggle.setEnabled(False)
+        self.capture_button.setEnabled(False)
         self.last_mic_sound = self.last_system_sound = time.monotonic()
         self.consent_checkbox.setEnabled(False)
         self.mic_state.setText("Listening…")
@@ -1812,6 +1947,7 @@ class MeetingScribeWindow(QMainWindow):
         live_mode = self.live_mode_combo.currentData()
         self.live_mode_combo.setEnabled(False)
         self.speaker_labels_combo.setEnabled(False)
+        self.transcript_options_button.setEnabled(False)
         self.live_transcriber = None
         if live_mode != "off":
             preview_model, threads, prefer_gpu, interval = LIVE_PROFILES[live_mode]
@@ -1886,8 +2022,10 @@ class MeetingScribeWindow(QMainWindow):
     def processing_completed(self, transcript: str, notes: str):
         self.clarity_button.setEnabled(True)
         self.screen_toggle.setEnabled(True)
+        self.capture_button.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
         self.speaker_labels_combo.setEnabled(True)
+        self.transcript_options_button.setEnabled(True)
         self.live_transcript.setPlainText(transcript)
         (self.current_folder / "transcript.txt").write_text(transcript, encoding="utf-8")
         self.save_personal_notes()
@@ -1915,8 +2053,10 @@ class MeetingScribeWindow(QMainWindow):
     def processing_failed(self, message: str):
         self.clarity_button.setEnabled(True)
         self.screen_toggle.setEnabled(True)
+        self.capture_button.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
         self.speaker_labels_combo.setEnabled(True)
+        self.transcript_options_button.setEnabled(True)
         self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
         self.consent_checkbox.setChecked(False)
