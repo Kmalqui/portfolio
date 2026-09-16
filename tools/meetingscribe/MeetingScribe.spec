@@ -3,7 +3,7 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = collect_all('faster_whisper')
-for package in ('soundcard', 'soundfile', 'ctranslate2', 'tokenizers', 'huggingface_hub'):
+for package in ('soundcard', 'soundfile', 'ctranslate2', 'tokenizers', 'huggingface_hub', 'mss'):
     d, b, h = collect_all(package)
     datas += d
     binaries += b

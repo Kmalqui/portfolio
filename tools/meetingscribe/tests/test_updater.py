@@ -84,8 +84,9 @@ class UpdateTests(unittest.TestCase):
                 self.assertEqual(list(Path(folder).iterdir()), [])
 
     def test_untrusted_redirect_and_credentials_rejected(self):
+        credential_url = "https://" + "example_user:example_password" + "@github.com/setup"
         for url in ("http://github.com/test", "https://evil.example/setup", "https://github.com.evil.example/setup",
-                    "https://user:pass@github.com/setup", "https://github.com:444/setup"):
+                    credential_url, "https://github.com:444/setup"):
             with self.assertRaises(ValueError): updater.validate_download_url(url)
         release = updater.select_release([release_data()], "0.3.9-beta")
         with tempfile.TemporaryDirectory() as folder:

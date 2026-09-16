@@ -1,0 +1,5 @@
+tools/meetingscribe/__pycache__/
+tools/meetingscribe/tests/__pycache__/
+tools/meetingscribe/build/
+tools/meetingscribe/dist/
+tools/meetingscribe/installer-output/

@@ -22,6 +22,8 @@ from faster_whisper import WhisperModel
 from audio_cleanup import CleanupSettings, VoiceCleanup
 import bubbly_theme
 import updater
+from screen_recording import PROFILES as SCREEN_PROFILES, ScreenOptions, ScreenRecorder, available_monitors
+from speaker_labels import TranscriptSegment, label_transcript
 from PySide6.QtCore import QObject, QRectF, QSettings, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
@@ -52,7 +54,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.11-beta"
+APP_VERSION = "0.3.12-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -300,6 +302,7 @@ class Recorder(QObject):
         self._system_chunks: list[np.ndarray] = []
         self.cleanup_settings = CleanupSettings()
         self.original_folder: Path | None = None
+        self.preserve_tracks = False
 
     @staticmethod
     def microphones():
@@ -408,6 +411,9 @@ class Recorder(QObject):
         if peak > 0.98:
             mixed *= 0.98 / peak
         sf.write(destination, mixed, SAMPLE_RATE, subtype="PCM_16")
+        if self.preserve_tracks:
+            sf.write(destination.with_name("microphone.wav"), mic, SAMPLE_RATE, subtype="PCM_16")
+            sf.write(destination.with_name("meeting-audio.wav"), system, SAMPLE_RATE, subtype="PCM_16")
         return destination
 
 
@@ -517,12 +523,38 @@ class ProcessingWorker(QObject):
     completed = Signal(str, str)
     failed = Signal(str)
 
-    def __init__(self, audio_path: Path, whisper_model: str, ollama_model: str, prompt: str):
+    def __init__(self, audio_path: Path, whisper_model: str, ollama_model: str, prompt: str,
+                 speaker_labels: bool = False, other_speakers: int = 2):
         super().__init__()
         self.audio_path = audio_path
         self.whisper_model = whisper_model
         self.ollama_model = ollama_model
         self.prompt = prompt
+        self.speaker_labels = speaker_labels
+        self.other_speakers = other_speakers
+
+    @staticmethod
+    def _segments(items) -> list[TranscriptSegment]:
+        return [TranscriptSegment(float(item.start), float(item.end), item.text.strip()) for item in items if item.text.strip()]
+
+    def _format_transcript(self, segments: list[TranscriptSegment]) -> str:
+        if not self.speaker_labels:
+            return " ".join(segment.text for segment in segments).strip()
+        mic_path = self.audio_path.with_name("microphone.wav")
+        others_path = self.audio_path.with_name("meeting-audio.wav")
+        if not mic_path.exists() or not others_path.exists():
+            return " ".join(segment.text for segment in segments).strip()
+        microphone, mic_rate = sf.read(mic_path, dtype="float32", always_2d=False)
+        meeting_audio, others_rate = sf.read(others_path, dtype="float32", always_2d=False)
+        if mic_rate != others_rate:
+            return " ".join(segment.text for segment in segments).strip()
+        return label_transcript(
+            segments,
+            np.asarray(microphone).reshape(-1),
+            np.asarray(meeting_audio).reshape(-1),
+            mic_rate,
+            self.other_speakers,
+        )
 
     def run(self) -> None:
         try:
@@ -532,14 +564,14 @@ class ProcessingWorker(QObject):
                 segments, _ = model.transcribe(
                     str(self.audio_path), vad_filter=True, beam_size=5
                 )
-                transcript = " ".join(s.text.strip() for s in segments).strip()
+                transcript = self._format_transcript(self._segments(segments))
             except Exception:
                 self.progress.emit("Using CPU transcription…")
                 model = WhisperModel(self.whisper_model, device="cpu", compute_type="int8")
                 segments, _ = model.transcribe(
                     str(self.audio_path), vad_filter=True, beam_size=5
                 )
-                transcript = " ".join(s.text.strip() for s in segments).strip()
+                transcript = self._format_transcript(self._segments(segments))
 
             if not transcript:
                 raise RuntimeError(
@@ -629,6 +661,7 @@ class MeetingScribeWindow(QMainWindow):
         self.current_audio: Path | None = None
         self.worker_thread: QThread | None = None
         self.live_transcriber: LiveTranscriber | None = None
+        self.screen_recorder: ScreenRecorder | None = None
         self._update_checking = False
         self._update_downloading = False
         self._available_update = None
@@ -814,9 +847,7 @@ class MeetingScribeWindow(QMainWindow):
         consent_title.setObjectName("consentTitle")
         consent_warning = QLabel("Recording rules vary. Inform everyone and get all required permission before you begin.")
         consent_warning.setWordWrap(True)
-        self.consent_checkbox = QCheckBox(
-            "I have permission to record this meeting."
-        )
+        self.consent_checkbox = QCheckBox("I have permission to record this meeting.")
         self.consent_checkbox.setToolTip(
             "This acknowledgment is required before Start Recording is enabled."
         )
@@ -841,11 +872,20 @@ class MeetingScribeWindow(QMainWindow):
         self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.toggle_recording)
         self.consent_checkbox.toggled.connect(self.record_button.setEnabled)
+        self.screen_toggle = QPushButton("▣  Screen record off")
+        self.screen_toggle.setObjectName("screenToggle")
+        self.screen_toggle.setCheckable(True)
+        self.screen_toggle.setAccessibleName("Include screen recording")
+        self.screen_toggle.setToolTip(
+            "Include your selected screen in this meeting. Use Settings → Screen options to change the screen or quality."
+        )
+        self.screen_toggle.toggled.connect(self.toggle_screen_quick)
         self.duration = QLabel("00:00:00")
         self.duration.setObjectName("timer")
         self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
         controls.addWidget(self.record_button, 1)
+        controls.addWidget(self.screen_toggle)
         controls.addWidget(self.duration)
         layout.addLayout(controls)
 
@@ -950,6 +990,9 @@ class MeetingScribeWindow(QMainWindow):
         self.settings_button = QPushButton("Settings")
         self.settings_button.setObjectName("settingsButton")
         self.settings_menu = QMenu(self.settings_button)
+        self.screen_action = self.settings_menu.addAction("Screen options…", self.configure_screen_recording)
+        self.speaker_action = self.settings_menu.addAction("Speaker labels…", self.configure_speaker_labels)
+        self.settings_menu.addSeparator()
         self.settings_menu.addAction("Customize Summary…", self.edit_template)
         self.settings_menu.addAction("Refresh Devices", self.refresh_all)
         self.settings_menu.addSeparator()
@@ -968,6 +1011,9 @@ class MeetingScribeWindow(QMainWindow):
         bottom.addWidget(self.settings_button)
         layout.addLayout(bottom)
 
+        self.refresh_screen_recording_label()
+        self.refresh_speaker_label()
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -978,6 +1024,212 @@ class MeetingScribeWindow(QMainWindow):
         return bool(self.recording or self.record_button.property("processing")
                     or (self.worker_thread and self.worker_thread.isRunning())
                     or (self.live_transcriber and self.live_transcriber.is_running()))
+
+    def screen_options(self):
+        profile = self.settings.value("screen_profile", "efficient")
+        if profile not in SCREEN_PROFILES:
+            profile = "efficient"
+        return ScreenOptions(
+            enabled=self.settings.value("screen_enabled", False, type=bool),
+            monitor=max(1, self.settings.value("screen_monitor", 1, type=int)),
+            profile=profile,
+        )
+
+    def speaker_label_options(self):
+        return (
+            self.settings.value("speaker_labels/enabled", False, type=bool),
+            max(1, min(4, self.settings.value("speaker_labels/others", 2, type=int))),
+        )
+
+    def refresh_speaker_label(self):
+        enabled, others = self.speaker_label_options()
+        self.speaker_action.setText(
+            f"Speaker labels: Myself + {others}…" if enabled else "Speaker labels: off…"
+        )
+
+    def configure_speaker_labels(self):
+        if self.recording:
+            QMessageBox.information(self, "Speaker labels", "Speaker label settings can be changed before the next recording.")
+            return
+        current_enabled, current_others = self.speaker_label_options()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Speaker labels")
+        dialog.setMinimumWidth(540)
+        body = QVBoxLayout(dialog)
+        enabled = QCheckBox("Label who is speaking in the final transcript")
+        enabled.setChecked(current_enabled)
+        body.addWidget(enabled)
+        hint = QLabel(
+            "MeetingScribe can identify Myself from your microphone and group voices from meeting audio as Speaker 1, Speaker 2, and so on. "
+            "The other-speaker labels are experimental and may be less accurate when people overlap, use similar voices, or share a room."
+        )
+        hint.setWordWrap(True)
+        hint.setObjectName("sectionHint")
+        body.addWidget(hint)
+        form = QFormLayout()
+        others = QSpinBox()
+        others.setRange(1, 4)
+        others.setValue(current_others)
+        others.setSuffix(" other speaker" if current_others == 1 else " other speakers")
+        others.valueChanged.connect(lambda value: others.setSuffix(" other speaker" if value == 1 else " other speakers"))
+        others.setEnabled(enabled.isChecked())
+        enabled.toggled.connect(others.setEnabled)
+        form.addRow("Expected voices", others)
+        body.addLayout(form)
+        note = QLabel("Labels are added after you stop recording. Audio stays on this computer.")
+        note.setObjectName("sectionHint")
+        body.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        body.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.settings.setValue("speaker_labels/enabled", enabled.isChecked())
+        self.settings.setValue("speaker_labels/others", others.value())
+        self.refresh_speaker_label()
+
+    def refresh_screen_recording_label(self):
+        options = self.screen_options()
+        if self.screen_recorder and self.screen_recorder.is_running():
+            self.screen_action.setText("Stop screen recording")
+        else:
+            self.screen_action.setText("Screen options…")
+        if hasattr(self, "screen_toggle"):
+            self.screen_toggle.blockSignals(True)
+            self.screen_toggle.setChecked(options.enabled)
+            self.screen_toggle.setText("●  Screen record on" if options.enabled else "▣  Screen record off")
+            self.screen_toggle.setToolTip(
+                "Your selected screen will be saved with this meeting. Click to record audio only."
+                if options.enabled else
+                "Include your selected screen in this meeting. Use Settings → Screen options to change the screen or quality."
+            )
+            self.screen_toggle.blockSignals(False)
+        self.consent_checkbox.setText(
+            "I have permission to record audio and the screen."
+            if options.enabled else "I have permission to record this meeting."
+        )
+
+    def toggle_screen_quick(self, enabled):
+        if enabled:
+            try:
+                monitors = available_monitors()
+            except Exception:
+                monitors = []
+            if not monitors:
+                self.settings.setValue("screen_enabled", False)
+                self.refresh_screen_recording_label()
+                QMessageBox.warning(self, "Screen recording", "No screen is available. Connect a display and try again.")
+                return
+            if self.screen_options().monitor > len(monitors):
+                self.settings.setValue("screen_monitor", 1)
+        self.settings.setValue("screen_enabled", bool(enabled))
+        self.refresh_screen_recording_label()
+        self.status_label.setText(
+            "Screen will be included — audio and video stay on this computer."
+            if enabled else "Ready — recording will include audio only."
+        )
+
+    def configure_screen_recording(self):
+        if self.screen_recorder and self.screen_recorder.is_running():
+            answer = QMessageBox.question(
+                self, "Stop screen recording?",
+                "Stop saving the screen now? Audio recording and transcription will continue.",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.stop_screen_recording()
+            return
+        if self.recording:
+            QMessageBox.information(self, "Screen recording", "Screen capture settings can be changed before the next recording.")
+            return
+        try:
+            monitors = available_monitors()
+        except Exception:
+            monitors = []
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Screen recording")
+        dialog.setMinimumWidth(540)
+        body = QVBoxLayout(dialog)
+        enabled = QCheckBox("Record my screen with this meeting")
+        enabled.setChecked(self.screen_options().enabled)
+        body.addWidget(enabled)
+        hint = QLabel("Saved locally as screen-recording.mp4. Screen capture can include notifications and sensitive information. Hide anything you do not want recorded.")
+        hint.setWordWrap(True)
+        hint.setObjectName("sectionHint")
+        body.addWidget(hint)
+        form = QFormLayout()
+        monitor_combo = QComboBox()
+        if monitors:
+            for number, monitor in enumerate(monitors, 1):
+                monitor_combo.addItem(f"Screen {number} · {monitor['width']} × {monitor['height']}", number)
+        else:
+            monitor_combo.addItem("No screen detected", None)
+        selected = monitor_combo.findData(self.screen_options().monitor)
+        monitor_combo.setCurrentIndex(max(0, selected))
+        quality_combo = QComboBox()
+        for key, (label, *_details) in SCREEN_PROFILES.items():
+            quality_combo.addItem(label, key)
+        quality_combo.setCurrentIndex(max(0, quality_combo.findData(self.screen_options().profile)))
+        form.addRow("Screen", monitor_combo)
+        form.addRow("Quality", quality_combo)
+        body.addLayout(form)
+        controls = (monitor_combo, quality_combo)
+        enabled.toggled.connect(lambda checked: [control.setEnabled(checked) for control in controls])
+        for control in controls:
+            control.setEnabled(enabled.isChecked())
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        body.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if enabled.isChecked() and monitor_combo.currentData() is None:
+            QMessageBox.warning(self, "Screen recording", "No screen is available. Connect a display and try again.")
+            return
+        self.settings.setValue("screen_enabled", enabled.isChecked())
+        if monitor_combo.currentData() is not None:
+            self.settings.setValue("screen_monitor", monitor_combo.currentData())
+        self.settings.setValue("screen_profile", quality_combo.currentData())
+        self.refresh_screen_recording_label()
+
+    def start_screen_recording(self):
+        options = self.screen_options()
+        if not options.enabled or not self.current_folder:
+            return False
+        recorder = ScreenRecorder(self.current_folder / "screen-recording.mp4", options, self)
+        recorder.error.connect(self.screen_recording_error)
+        recorder.stopped.connect(self.screen_recording_stopped)
+        try:
+            recorder.start()
+        except Exception as exc:
+            self.screen_recording_error(f"Screen recording could not start: {exc}")
+            return False
+        self.screen_recorder = recorder
+        self.refresh_screen_recording_label()
+        return True
+
+    def stop_screen_recording(self, wait=False):
+        recorder = self.screen_recorder
+        if recorder:
+            recorder.stop(wait=wait)
+        self.refresh_screen_recording_label()
+
+    def screen_recording_error(self, message):
+        self.screen_recorder = None
+        self.refresh_screen_recording_label()
+        self.set_screen_indicator(False)
+        self.status_label.setText(message + " Audio recording continues.")
+
+    def screen_recording_stopped(self, path):
+        self.screen_recorder = None
+        self.refresh_screen_recording_label()
+        if self.recording:
+            self.status_label.setText("Screen recording saved. Audio recording continues.")
+
+    def set_screen_indicator(self, active):
+        self.status_label.setProperty("screenRecording", bool(active))
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
 
     def startup_updates(self):
         self.restore_update_draft()
@@ -1273,6 +1525,8 @@ class MeetingScribeWindow(QMainWindow):
         )
         self.recorder.cleanup_settings = self.cleanup_preferences()
         self.recorder.original_folder = self.current_folder
+        speaker_labels_enabled, other_speakers = self.speaker_label_options()
+        self.recorder.preserve_tracks = speaker_labels_enabled
         (self.current_folder / "audio-settings.json").write_text(json.dumps(asdict(self.recorder.cleanup_settings), indent=2), encoding="utf-8")
         try:
             self.recorder.start(selection)
@@ -1280,12 +1534,20 @@ class MeetingScribeWindow(QMainWindow):
             self.show_error(str(exc))
             return
 
+        if self.screen_options().enabled:
+            (self.current_folder / "screen-settings.json").write_text(
+                json.dumps(asdict(self.screen_options()), indent=2), encoding="utf-8"
+            )
+        screen_started = self.start_screen_recording()
+        self.set_screen_indicator(screen_started)
+
         self.settings.setValue("microphone_id", selection.microphone_id)
         self.settings.setValue("speaker_id", selection.speaker_id)
         self.settings.setValue("ollama_model", self.model_combo.currentText())
         self.settings.setValue("whisper", self.whisper_combo.currentText())
         self.recording = True
         self.clarity_button.setEnabled(False)
+        self.screen_toggle.setEnabled(False)
         self.last_mic_sound = self.last_system_sound = time.monotonic()
         self.consent_checkbox.setEnabled(False)
         self.mic_state.setText("Listening…")
@@ -1307,7 +1569,10 @@ class MeetingScribeWindow(QMainWindow):
         else:
             self.live_transcript.setPlainText("Live preview is off to save resources. The full transcript will appear after you stop.")
         self._set_record_button_state("recording")
-        self.status_label.setText("Recording microphone and meeting audio…")
+        self.status_label.setText(
+            "● Recording audio + screen — everything stays on this computer."
+            if screen_started else "Recording microphone and meeting audio…"
+        )
         self.notes.clear()
         self.save_button.setEnabled(False)
         self.current_meeting_action.setEnabled(False)
@@ -1317,6 +1582,8 @@ class MeetingScribeWindow(QMainWindow):
         self.live_timer.stop()
         if self.live_transcriber:
             self.live_transcriber.stop()
+        self.stop_screen_recording(wait=True)
+        self.set_screen_indicator(False)
         self.recording = False
         self.record_button.setEnabled(False)
         self._set_record_button_state("processing")
@@ -1345,6 +1612,7 @@ class MeetingScribeWindow(QMainWindow):
             self.whisper_combo.currentText(),
             self.model_combo.currentText(),
             prompt,
+            *self.speaker_label_options(),
         )
         worker.moveToThread(self.worker_thread)
         self.worker_thread.started.connect(worker.run)
@@ -1359,6 +1627,7 @@ class MeetingScribeWindow(QMainWindow):
 
     def processing_completed(self, transcript: str, notes: str):
         self.clarity_button.setEnabled(True)
+        self.screen_toggle.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
         self.live_transcript.setPlainText(transcript)
         (self.current_folder / "transcript.txt").write_text(transcript, encoding="utf-8")
@@ -1385,6 +1654,7 @@ class MeetingScribeWindow(QMainWindow):
 
     def processing_failed(self, message: str):
         self.clarity_button.setEnabled(True)
+        self.screen_toggle.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
         self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
@@ -1514,6 +1784,30 @@ class MeetingScribeWindow(QMainWindow):
     def show_error(self, message: str):
         QMessageBox.critical(self, "MeetingScribe", message)
 
+    def confirm_force_close_processing(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("Meeting still processing")
+        dialog.setText(
+            "MeetingScribe is still creating the transcript or summary.\n\n"
+            "Force closing will stop that work. The audio recording and anything you typed will stay saved, "
+            "but the unfinished transcript or summary will be lost."
+        )
+        keep_waiting = dialog.addButton("Keep waiting", QMessageBox.ButtonRole.RejectRole)
+        force_close = dialog.addButton("Force close", QMessageBox.ButtonRole.DestructiveRole)
+        dialog.setDefaultButton(keep_waiting)
+        dialog.exec()
+        return dialog.clickedButton() == force_close
+
+    def force_close_processing(self):
+        # QThread cannot safely be torn down mid-inference. Persist editable text,
+        # then end the process immediately only after the explicit destructive choice.
+        try:
+            self.save_update_draft()
+        except (OSError, ValueError):
+            pass
+        os._exit(0)
+
     def closeEvent(self, event):
         if self._update_downloading:
             self.update_jobs.cancel.set()
@@ -1521,7 +1815,10 @@ class MeetingScribeWindow(QMainWindow):
             event.ignore()
             return
         if self.update_busy() and not self.recording:
-            QMessageBox.information(self, "Meeting still processing", "Please wait for transcription and notes to finish before closing.")
+            if self.confirm_force_close_processing():
+                event.ignore()
+                self.force_close_processing()
+                return
             event.ignore()
             return
         if self.recording:
@@ -1533,6 +1830,7 @@ class MeetingScribeWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+            self.stop_screen_recording(wait=True)
             self.recorder._stop.set()
         event.accept()
 
