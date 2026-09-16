@@ -288,9 +288,38 @@ class InterfaceTests(unittest.TestCase):
 
     def test_speaker_labels_default_off_and_allow_myself_plus_two(self):
         self.assertEqual(self.window.speaker_label_options(), (False, 2))
+        self.assertEqual(self.window.speaker_labels_combo.currentData(), 0)
+        self.assertIn("final transcript", self.window.speaker_labels_combo.toolTip())
         self.test_settings.setValue("speaker_labels/enabled", True)
         self.window.refresh_speaker_label()
         self.assertEqual(self.window.speaker_action.text(), "Speaker labels: Myself + 2…")
+        self.assertEqual(self.window.speaker_labels_combo.currentData(), 2)
+        self.window.speaker_labels_combo.setCurrentIndex(
+            self.window.speaker_labels_combo.findData(3)
+        )
+        self.assertEqual(self.window.speaker_label_options(), (True, 3))
+        self.assertIn("after recording stops", self.window.status_label.text())
+
+    def test_transcript_can_expand_minimize_and_restore(self):
+        original = self.window.workspace.sizes()
+        self.assertTrue(all(original))
+        self.window.transcript_expand_button.click()
+        self.qt.processEvents()
+        self.assertEqual(self.window.transcript_view, "expanded")
+        self.assertEqual(self.window.transcript_expand_button.text(), "Restore")
+        self.assertEqual(self.window.workspace.sizes()[1], 0)
+        self.window.transcript_expand_button.click()
+        self.qt.processEvents()
+        self.assertEqual(self.window.transcript_view, "normal")
+        self.assertTrue(all(self.window.workspace.sizes()))
+        self.window.transcript_minimize_button.click()
+        self.qt.processEvents()
+        minimized = self.window.workspace.sizes()
+        self.assertEqual(self.window.transcript_view, "minimized")
+        self.assertEqual(self.window.transcript_minimize_button.text(), "Restore")
+        self.assertLess(minimized[0], minimized[1])
+        self.window.transcript_minimize_button.click()
+        self.assertEqual(self.window.transcript_view, "normal")
 
     def test_screen_capture_can_stop_without_stopping_audio(self):
         recorder = Mock()
