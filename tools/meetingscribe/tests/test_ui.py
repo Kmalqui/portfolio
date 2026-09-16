@@ -211,11 +211,64 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("Customize Summary…", labels)
         self.assertIn("Refresh Devices", labels)
         self.assertIn("Check for updates", labels)
+        self.assertIn("Screen options…", labels)
+        self.assertIn("Speaker labels: off…", labels)
         self.assertTrue(self.window.auto_update_action.isCheckable())
         self.assertIs(self.window.settings_button.menu(), self.window.settings_menu)
         self.assertFalse(any(child.metaObject().className() == "QStatusBar" for child in self.window.children()))
         self.window.auto_update_action.setChecked(False)
         self.assertFalse(self.test_settings.value("check_updates", True, type=bool))
+
+    def test_screen_recording_defaults_off_and_changes_consent_copy(self):
+        self.assertFalse(self.window.screen_options().enabled)
+        self.assertEqual(self.window.screen_options().profile, "efficient")
+        self.assertEqual(self.window.consent_checkbox.text(), "I have permission to record this meeting.")
+        self.test_settings.setValue("screen_enabled", True)
+        self.window.refresh_screen_recording_label()
+        self.assertEqual(self.window.screen_action.text(), "Screen options…")
+        self.assertTrue(self.window.screen_toggle.isChecked())
+        self.assertEqual(self.window.screen_toggle.text(), "●  Screen record on")
+        self.assertIn("audio and the screen", self.window.consent_checkbox.text())
+
+    def test_compact_screen_toggle_enables_capture_without_opening_settings(self):
+        self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+        with patch.object(meetingscribe, "available_monitors", return_value=[{"width": 1920, "height": 1080}]):
+            self.window.screen_toggle.click()
+        self.assertTrue(self.window.screen_options().enabled)
+        self.assertEqual(self.window.screen_toggle.text(), "●  Screen record on")
+        self.window.screen_toggle.click()
+        self.assertFalse(self.window.screen_options().enabled)
+        self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+
+    def test_speaker_labels_default_off_and_allow_myself_plus_two(self):
+        self.assertEqual(self.window.speaker_label_options(), (False, 2))
+        self.test_settings.setValue("speaker_labels/enabled", True)
+        self.window.refresh_speaker_label()
+        self.assertEqual(self.window.speaker_action.text(), "Speaker labels: Myself + 2…")
+
+    def test_screen_capture_can_stop_without_stopping_audio(self):
+        recorder = Mock()
+        recorder.is_running.return_value = True
+        self.window.screen_recorder = recorder
+        self.window.recording = True
+        self.window.stop_screen_recording(wait=False)
+        recorder.stop.assert_called_once_with(wait=False)
+        self.assertTrue(self.window.recording)
+        self.window.screen_recorder = None
+        self.window.recording = False
+
+    def test_screen_capture_uses_current_meeting_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.current_folder = Path(folder)
+            self.test_settings.setValue("screen_enabled", True)
+            fake = Mock()
+            fake.is_running.return_value = True
+            with patch.object(meetingscribe, "ScreenRecorder", return_value=fake) as factory:
+                self.assertTrue(self.window.start_screen_recording())
+            self.assertEqual(factory.call_args.args[0], Path(folder) / "screen-recording.mp4")
+            fake.start.assert_called_once()
+            self.window.screen_recorder = None
+            self.window.current_folder = None
 
     def test_update_offer_deferred_during_meeting(self):
         self.window.recording = True
@@ -235,6 +288,25 @@ class InterfaceTests(unittest.TestCase):
         self.window.live_transcriber.is_running.return_value = True
         self.assertTrue(self.window.update_busy())
         self.window.live_transcriber = None
+
+    def test_processing_close_can_keep_waiting_or_force_close(self):
+        event = Mock()
+        self.window._set_record_button_state("processing")
+        with patch.object(self.window, "confirm_force_close_processing", return_value=False), patch.object(
+            self.window, "force_close_processing"
+        ) as force_close:
+            self.window.closeEvent(event)
+        event.ignore.assert_called_once()
+        force_close.assert_not_called()
+
+        event.reset_mock()
+        with patch.object(self.window, "confirm_force_close_processing", return_value=True), patch.object(
+            self.window, "force_close_processing"
+        ) as force_close:
+            self.window.closeEvent(event)
+        event.ignore.assert_called_once()
+        force_close.assert_called_once()
+        self.window._set_record_button_state("idle")
 
     def test_download_blocks_recording_and_failed_update_keeps_app_open(self):
         self.window._update_downloading = True

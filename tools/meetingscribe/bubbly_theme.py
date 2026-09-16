@@ -16,8 +16,10 @@ QPushButton { border-radius: 20px; padding: 4px 15px; }
 QPushButton#settingsButton { padding-right: 28px; }
 QPushButton#settingsButton::menu-indicator { subcontrol-position: center right; subcontrol-origin: padding; right: 10px; }
 QPushButton#recordButton { border-radius: 27px; font-size: 16px; }
+QPushButton#screenToggle { min-width: 142px; min-height: 42px; border-radius: 22px; font-weight: 700; padding: 3px 13px; }
 QLabel#timer { border-radius: 22px; }
 QLabel#statusPill { border-radius: 16px; }
+QLabel#statusPill[screenRecording="true"] { background: #a53c52; color: #ffffff; }
 QLabel#privacyBadge { border-radius: 13px; padding: 7px 13px; }
 QComboBox#liveMode { border-radius: 12px; padding-right: 24px; }
 QPushButton#clarityButton { border-radius: 12px; }
@@ -57,6 +59,8 @@ QPushButton#recordButton:hover { background: #cbb0f5; }
 QPushButton#recordButton:disabled { background: #eee3f7; color: #85718f; }
 QPushButton#recordButton[recording="true"] { background: #b63b54; color: #ffffff; }
 QPushButton#recordButton[processing="true"] { background: #655086; color: #ffffff; }
+QPushButton#screenToggle:checked { background: #dff3df; color: #315f3b; border-color: #a9d1ac; }
+QPushButton#screenToggle:checked:hover { background: #d2ecd3; }
 QLabel#timer { background: #fff0e7; border-color: #eed7c8; color: #77462c; }
 QLabel#statusPill, QLabel#privacyBadge { background: #e0f3df; color: #375c36; }
 QProgressBar { background: #e4d9ed; }
@@ -94,6 +98,8 @@ QPushButton#recordButton:hover { background: #e3c9fd; }
 QPushButton#recordButton:disabled { background: #4c3d5d; color: #bba6c8; }
 QPushButton#recordButton[recording="true"] { background: #b13c56; color: #ffffff; }
 QPushButton#recordButton[processing="true"] { background: #695083; color: #ffffff; }
+QPushButton#screenToggle:checked { background: #335344; color: #d9f5cf; border-color: #5f816e; }
+QPushButton#screenToggle:checked:hover { background: #3c6250; }
 QLabel#timer { background: #4a343e; border-color: #78545d; color: #ffd4be; }
 QLabel#statusPill, QLabel#privacyBadge { background: #30473c; color: #cfedbb; }
 QProgressBar { background: #564563; }

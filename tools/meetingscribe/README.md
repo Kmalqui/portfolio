@@ -4,7 +4,30 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
-## New in 0.3.11 beta — a calmer footer
+## New in 0.3.12 beta — optional screen recording
+
+Click the compact **Screen record off** button beside **Start Recording** to include your screen; it changes to **Screen record on**. Click it again for audio only. Use **Settings → Screen options** only when you want to select a different monitor or quality level. Screen capture is off by default. Video is saved as `screen-recording.mp4` in the same dated folder as the transcript and notes. `screen-settings.json` records the selected monitor and quality.
+
+- **Efficient** records at up to 720p and 10 frames per second. This is the default and uses the least processing power.
+- **Standard** records at up to 1080p and 15 frames per second.
+- **High** records the monitor's native size at 30 frames per second and can use substantial CPU, storage, and battery power.
+- Choose **Settings → Stop screen recording** during a meeting to stop screen capture while audio recording and transcription continue.
+
+Screen recording never captures a camera and is not sent to Ollama. It can capture notifications, passwords, private messages, and anything else visible on the selected monitor. Hide sensitive material and make a short test before relying on it. File sizes can become large during long meetings.
+
+When screen recording is enabled, the permission checkbox explicitly covers audio and the screen. Tell everyone what will be captured and obtain all permission required by the participants, organizer, workplace or school, platform rules, and applicable law. MeetingScribe cannot determine whether recording is lawful.
+
+### Optional speaker labels
+
+Open **Settings → Speaker labels** before recording if you want the final transcript to show **Myself**, **Speaker 1**, **Speaker 2**, and so on. Choose how many other voices you expect (one to four). MeetingScribe uses the separate microphone track to identify you, then groups the meeting-audio voices locally. Labels appear in the final transcript after you stop; the low-resource live preview stays unlabeled.
+
+Other-speaker grouping is experimental. Overlapping speech, similar voices, short replies, people sharing one room, or audio that leaks from speakers into the microphone can produce incorrect labels. Review names and labels before sharing notes. This feature does not download another AI model or send audio online.
+
+### Closing while a transcript is processing
+
+If you close MeetingScribe while it is still creating the final transcript or summary, choose **Keep waiting** or **Force close**. Force close stops processing immediately. The completed audio recording and anything typed in **My notes** remain saved, but the unfinished final transcript or AI summary is discarded. A recovery draft preserves text already visible in the app and restores it when MeetingScribe opens again.
+
+## Introduced in 0.3.11 beta — a calmer footer
 
 The bottom row now contains just **Save Notes**, **Saved Meetings**, and **Settings**. Saved Meetings offers **Open all saved meetings** and **Open this meeting's folder**; the latter becomes available after processing finishes. The separate folder button beside the recording timer is gone. Open Settings for summary customization, device refresh, and update controls. Hover over Saved Meetings to see the full save location. Settings shows **Settings · Update** when a newer version is available.
 
@@ -87,7 +110,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.11 installer. Use the same installation folder as before.
+2. Run the new 0.3.12 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -103,6 +126,9 @@ After each meeting, MeetingScribe creates a folder containing:
 - `my-notes.md` — anything you typed in the **My notes** section.
 - `notes.md` — the final transcript at the top followed by organized AI meeting notes.
 - `meeting.json` — basic technical details about how the notes were processed.
+- `screen-recording.mp4` — the selected monitor, when optional screen recording is enabled.
+- `screen-settings.json` — the screen capture settings used for that meeting.
+- `microphone.wav` and `meeting-audio.wav` — separate local tracks used only when speaker labels are enabled.
 
 The generated notes normally include a title, summary, discussion points, decisions, action items, and the complete transcript.
 
@@ -127,7 +153,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.11-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.12-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
