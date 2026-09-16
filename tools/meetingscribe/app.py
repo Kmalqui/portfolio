@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.16-beta"
+APP_VERSION = "0.3.17-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -961,7 +961,7 @@ class MeetingScribeWindow(QMainWindow):
         transcript_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         transcript_layout = QVBoxLayout(transcript_panel)
         transcript_layout.setContentsMargins(13, 10, 13, 13)
-        transcript_label = QLabel("✦  Live transcript · we'll do the typing")
+        transcript_label = QLabel("✦  Live transcript · speaker labels appear after Stop")
         transcript_label.setObjectName("fieldLabel")
         transcript_header = QHBoxLayout()
         transcript_header.addWidget(transcript_label, 1)
@@ -1230,6 +1230,8 @@ class MeetingScribeWindow(QMainWindow):
         menu = self.transcript_options_menu
         menu.clear()
         menu.addSection("Live preview")
+        live_note = menu.addAction("Controls how often live text updates")
+        live_note.setEnabled(False)
         live_labels = {
             "eco": "Eco — lowest load",
             "balanced": "Balanced — clearer preview",
@@ -1240,10 +1242,13 @@ class MeetingScribeWindow(QMainWindow):
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(mode == live_mode)
+            action.setEnabled(not self.recording)
             action.triggered.connect(
                 lambda _checked=False, selected=mode: self.choose_live_mode(selected)
             )
         menu.addSection("Final speaker labels")
+        speaker_note = menu.addAction("Added after Stop & Create Notes")
+        speaker_note.setEnabled(False)
         enabled, others = self.speaker_label_options()
         for count in range(5):
             label = "Off" if count == 0 else f"Myself + {count} other"
@@ -1255,9 +1260,12 @@ class MeetingScribeWindow(QMainWindow):
             action.triggered.connect(
                 lambda _checked=False, selected=count: self.choose_speaker_labels(selected)
             )
-        preview = "Eco" if live_mode == "eco" else ("Balanced" if live_mode == "balanced" else "Preview off")
-        speakers = f"Myself + {others}" if enabled else "Speakers off"
+        preview = "Eco live text" if live_mode == "eco" else ("Balanced live text" if live_mode == "balanced" else "Live text off")
+        speakers = f"Final labels: Myself + {others}" if enabled else "Final labels off"
         self.transcript_options_button.setText(f"{preview} · {speakers}")
+        self.transcript_options_button.setToolTip(
+            "Live text is unlabeled. Myself, Speaker 1, and Speaker 2 are added to the final transcript after you stop."
+        )
 
     def speaker_label_options(self):
         return (
@@ -1268,11 +1276,15 @@ class MeetingScribeWindow(QMainWindow):
     def change_speaker_labels(self):
         others = self.speaker_labels_combo.currentData()
         self.settings.setValue("speaker_labels/enabled", bool(others))
+        if self.recording:
+            self.recorder.preserve_tracks = bool(others)
         if others:
             self.settings.setValue("speaker_labels/others", others)
             self.status_label.setText(
-                "Speaker labels will appear in the final transcript after recording stops."
+                "Final speaker labels are on. They will appear after Stop & Create Notes."
             )
+        elif self.recording:
+            self.status_label.setText("Final speaker labels are off for this meeting.")
         self.refresh_speaker_label()
         self.refresh_transcript_menu()
 
@@ -1947,7 +1959,7 @@ class MeetingScribeWindow(QMainWindow):
         live_mode = self.live_mode_combo.currentData()
         self.live_mode_combo.setEnabled(False)
         self.speaker_labels_combo.setEnabled(False)
-        self.transcript_options_button.setEnabled(False)
+        self.refresh_transcript_menu()
         self.live_transcriber = None
         if live_mode != "off":
             preview_model, threads, prefer_gpu, interval = LIVE_PROFILES[live_mode]
@@ -2025,7 +2037,7 @@ class MeetingScribeWindow(QMainWindow):
         self.capture_button.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
         self.speaker_labels_combo.setEnabled(True)
-        self.transcript_options_button.setEnabled(True)
+        self.refresh_transcript_menu()
         self.live_transcript.setPlainText(transcript)
         (self.current_folder / "transcript.txt").write_text(transcript, encoding="utf-8")
         self.save_personal_notes()
@@ -2056,7 +2068,7 @@ class MeetingScribeWindow(QMainWindow):
         self.capture_button.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
         self.speaker_labels_combo.setEnabled(True)
-        self.transcript_options_button.setEnabled(True)
+        self.refresh_transcript_menu()
         self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
         self.consent_checkbox.setChecked(False)

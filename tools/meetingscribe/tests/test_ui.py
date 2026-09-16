@@ -301,7 +301,7 @@ class InterfaceTests(unittest.TestCase):
             self.window.speaker_labels_combo.findData(3)
         )
         self.assertEqual(self.window.speaker_label_options(), (True, 3))
-        self.assertIn("after recording stops", self.window.status_label.text())
+        self.assertIn("after Stop & Create Notes", self.window.status_label.text())
 
     def test_transcript_can_expand_minimize_and_restore(self):
         original = self.window.workspace.sizes()
@@ -329,12 +329,27 @@ class InterfaceTests(unittest.TestCase):
         self.assertFalse(self.window.screen_toggle.isVisible())
         self.assertFalse(self.window.screen_combo.isVisible())
         self.assertTrue(self.window.transcript_options_button.isVisible())
-        self.assertIn("Eco", self.window.transcript_options_button.text())
-        self.assertIn("Speakers off", self.window.transcript_options_button.text())
+        self.assertIn("Eco live text", self.window.transcript_options_button.text())
+        self.assertIn("Final labels off", self.window.transcript_options_button.text())
+        self.assertIn("after you stop", self.window.transcript_options_button.toolTip())
         self.assertFalse(self.window.live_mode_combo.isVisible())
         self.assertFalse(self.window.speaker_labels_combo.isVisible())
         self.assertFalse(self.window.transcript_minimize_button.isVisible())
         self.assertFalse(self.window.transcript_expand_button.isVisible())
+
+    def test_final_speaker_labels_can_be_enabled_during_recording(self):
+        self.window.recording = True
+        self.window.recorder.preserve_tracks = False
+        self.window.refresh_transcript_menu()
+        self.window.choose_speaker_labels(2)
+        self.assertEqual(self.window.speaker_label_options(), (True, 2))
+        self.assertTrue(self.window.recorder.preserve_tracks)
+        self.assertIn("Final labels: Myself + 2", self.window.transcript_options_button.text())
+        self.assertIn("after Stop & Create Notes", self.window.status_label.text())
+        actions = {action.text(): action for action in self.window.transcript_options_menu.actions()}
+        self.assertFalse(actions["Eco — lowest load"].isEnabled())
+        self.assertTrue(actions["Myself + 2 others"].isEnabled())
+        self.window.recording = False
 
     def test_recording_can_pause_and_resume_without_stopping(self):
         self.window.recording = True
