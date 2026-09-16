@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.14-beta"
+APP_VERSION = "0.3.15-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -298,6 +298,7 @@ class Recorder(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._stop = threading.Event()
+        self._pause = threading.Event()
         self._threads: list[threading.Thread] = []
         self._mic_chunks: list[np.ndarray] = []
         self._system_chunks: list[np.ndarray] = []
@@ -315,6 +316,7 @@ class Recorder(QObject):
 
     def start(self, selection: AudioSelection) -> None:
         self._stop.clear()
+        self._pause.clear()
         self._mic_chunks = []
         self._system_chunks = []
         self._live_cursor = 0
@@ -376,6 +378,8 @@ class Recorder(QObject):
                     original = stack.enter_context(sf.SoundFile(str(self.original_folder / filename), mode="w", samplerate=SAMPLE_RATE, channels=1, subtype="PCM_16"))
                 while not self._stop.is_set():
                     block = recorder.record(numframes=BLOCK_SIZE)
+                    if self._pause.is_set():
+                        continue
                     if block.ndim == 2:
                         block = np.mean(block, axis=1)
                     block = np.asarray(block, dtype=np.float32)
@@ -390,6 +394,16 @@ class Recorder(QObject):
         except Exception as exc:
             self.error.emit(f"Could not record {device.name}: {exc}")
             self._stop.set()
+
+    def pause(self) -> None:
+        self._pause.set()
+        self.level.emit(0, 0)
+
+    def resume(self) -> None:
+        self._pause.clear()
+
+    def is_paused(self) -> bool:
+        return self._pause.is_set()
 
     def stop(self, destination: Path) -> Path:
         self._stop.set()
@@ -657,7 +671,10 @@ class MeetingScribeWindow(QMainWindow):
         self.recorder.level.connect(self.update_levels)
         self.recorder.error.connect(self.show_error)
         self.recording = False
+        self.paused = False
         self.started_at = 0.0
+        self.paused_at = 0.0
+        self.paused_total = 0.0
         self.current_folder: Path | None = None
         self.current_audio: Path | None = None
         self.worker_thread: QThread | None = None
@@ -874,6 +891,12 @@ class MeetingScribeWindow(QMainWindow):
         self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.toggle_recording)
         self.consent_checkbox.toggled.connect(self.record_button.setEnabled)
+        self.pause_button = QPushButton("Ⅱ  Pause")
+        self.pause_button.setObjectName("pauseButton")
+        self.pause_button.setAccessibleName("Pause recording")
+        self.pause_button.setToolTip("Pause audio, screen recording, and live transcription without ending this meeting.")
+        self.pause_button.setEnabled(False)
+        self.pause_button.clicked.connect(self.toggle_pause)
         self.screen_toggle = QPushButton("▣  Screen record off")
         self.screen_toggle.setObjectName("screenToggle")
         self.screen_toggle.setCheckable(True)
@@ -893,6 +916,7 @@ class MeetingScribeWindow(QMainWindow):
         self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
         controls.addWidget(self.record_button, 1)
+        controls.addWidget(self.pause_button)
         controls.addWidget(self.screen_toggle)
         controls.addWidget(self.screen_combo)
         controls.addWidget(self.duration)
@@ -1694,6 +1718,37 @@ class MeetingScribeWindow(QMainWindow):
         else:
             self.start_recording()
 
+    def toggle_pause(self):
+        if not self.recording:
+            return
+        if self.paused:
+            now = time.monotonic()
+            self.paused_total += max(0, now - self.paused_at)
+            self.paused_at = 0.0
+            self.paused = False
+            self.recorder.resume()
+            if self.screen_recorder and self.screen_recorder.is_running():
+                self.screen_recorder.resume()
+            if self.live_transcriber:
+                self.live_timer.start()
+            self.pause_button.setText("Ⅱ  Pause")
+            self.pause_button.setAccessibleName("Pause recording")
+            self.mic_state.setText("Listening…")
+            self.system_state.setText("Listening…")
+            self.status_label.setText("● Recording resumed — continuing in the same meeting.")
+        else:
+            self.paused = True
+            self.paused_at = time.monotonic()
+            self.recorder.pause()
+            if self.screen_recorder and self.screen_recorder.is_running():
+                self.screen_recorder.pause()
+            self.live_timer.stop()
+            self.pause_button.setText("▶  Resume")
+            self.pause_button.setAccessibleName("Resume recording")
+            self.mic_state.setText("Paused")
+            self.system_state.setText("Paused")
+            self.status_label.setText("Paused — nothing is being added to this meeting. Select Resume when ready.")
+
     def start_recording(self):
         if self._update_downloading:
             return
@@ -1740,6 +1795,9 @@ class MeetingScribeWindow(QMainWindow):
         self.settings.setValue("ollama_model", self.model_combo.currentText())
         self.settings.setValue("whisper", self.whisper_combo.currentText())
         self.recording = True
+        self.paused = False
+        self.paused_total = 0.0
+        self.paused_at = 0.0
         self.clarity_button.setEnabled(False)
         self.screen_toggle.setEnabled(False)
         self.last_mic_sound = self.last_system_sound = time.monotonic()
@@ -1747,6 +1805,8 @@ class MeetingScribeWindow(QMainWindow):
         self.mic_state.setText("Listening…")
         self.system_state.setText("Listening…")
         self.started_at = time.monotonic()
+        self.pause_button.setEnabled(True)
+        self.pause_button.setText("Ⅱ  Pause")
         self.timer.start(250)
         self.live_transcript.clear()
         live_mode = self.live_mode_combo.currentData()
@@ -1780,6 +1840,9 @@ class MeetingScribeWindow(QMainWindow):
         self.stop_screen_recording(wait=True)
         self.set_screen_indicator(False)
         self.recording = False
+        self.paused = False
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText("Ⅱ  Pause")
         self.record_button.setEnabled(False)
         self._set_record_button_state("processing")
         try:
@@ -1847,6 +1910,7 @@ class MeetingScribeWindow(QMainWindow):
         self.system_state.setText("Starts listening when recording begins")
         self.save_button.setEnabled(True)
         self.current_meeting_action.setEnabled(True)
+        self.pause_button.setEnabled(False)
 
     def processing_failed(self, message: str):
         self.clarity_button.setEnabled(True)
@@ -1859,6 +1923,9 @@ class MeetingScribeWindow(QMainWindow):
         self.mic_state.setText("Starts listening when recording begins")
         self.system_state.setText("Starts listening when recording begins")
         self.status_label.setText(f"Could not finish: {message}")
+        self.paused = False
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText("Ⅱ  Pause")
         self.show_error(message)
 
     def update_levels(self, mic: float, system: float):
@@ -1877,7 +1944,7 @@ class MeetingScribeWindow(QMainWindow):
             )
 
     def request_live_transcription(self):
-        if not self.recording or not self.live_transcriber or not self.live_transcriber.can_accept():
+        if self.paused or not self.recording or not self.live_transcriber or not self.live_transcriber.can_accept():
             return
         snapshot = self.recorder.live_snapshot()
         if not snapshot:
@@ -1926,7 +1993,8 @@ class MeetingScribeWindow(QMainWindow):
         )
 
     def update_timer(self):
-        elapsed = int(time.monotonic() - self.started_at)
+        now = self.paused_at if self.paused else time.monotonic()
+        elapsed = max(0, int(now - self.started_at - self.paused_total))
         self.duration.setText(
             f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
         )

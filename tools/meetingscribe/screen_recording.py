@@ -47,6 +47,7 @@ class ScreenRecorder(QObject):
         self.output = Path(output)
         self.options = options
         self._stop = threading.Event()
+        self._pause = threading.Event()
         self._thread = None
         self._error = ""
 
@@ -54,6 +55,7 @@ class ScreenRecorder(QObject):
         if self._thread and self._thread.is_alive():
             raise RuntimeError("Screen recording is already running")
         self._stop.clear()
+        self._pause.clear()
         self._thread = threading.Thread(target=self._capture, daemon=True, name="MeetingScribe screen recorder")
         self._thread.start()
 
@@ -64,6 +66,15 @@ class ScreenRecorder(QObject):
 
     def is_running(self):
         return bool(self._thread and self._thread.is_alive())
+
+    def pause(self):
+        self._pause.set()
+
+    def resume(self):
+        self._pause.clear()
+
+    def is_paused(self):
+        return self._pause.is_set()
 
     def _capture(self):
         container = None
@@ -82,6 +93,10 @@ class ScreenRecorder(QObject):
                 interval = 1 / fps
                 next_frame = time.perf_counter()
                 while not self._stop.is_set():
+                    if self._pause.is_set():
+                        self._stop.wait(0.1)
+                        next_frame = time.perf_counter()
+                        continue
                     shot = capture.grab(monitor)
                     frame = av.VideoFrame.from_ndarray(np.asarray(shot), format="bgra")
                     frame = frame.reformat(width=width, height=height, format="yuv420p")

@@ -11,6 +11,14 @@ from audio_cleanup import CleanupSettings, VoiceCleanup
 
 
 class AudioCleanupTests(unittest.TestCase):
+    def test_recorder_pause_state_can_resume(self):
+        recorder = app.Recorder()
+        self.assertFalse(recorder.is_paused())
+        recorder.pause()
+        self.assertTrue(recorder.is_paused())
+        recorder.resume()
+        self.assertFalse(recorder.is_paused())
+
     def test_off_is_exact_passthrough(self):
         audio = np.random.default_rng(1).normal(0, .1, 4800).astype(np.float32)
         self.assertIs(VoiceCleanup(CleanupSettings()).process(audio), audio)

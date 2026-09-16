@@ -25,6 +25,11 @@ class ScreenRecordingTests(unittest.TestCase):
             recorder = ScreenRecorder(Path(folder) / "screen-recording.mp4", ScreenOptions(True))
             self.assertEqual(recorder.output.name, "screen-recording.mp4")
             self.assertFalse(recorder.is_running())
+            self.assertFalse(recorder.is_paused())
+            recorder.pause()
+            self.assertTrue(recorder.is_paused())
+            recorder.resume()
+            self.assertFalse(recorder.is_paused())
 
     def test_unknown_profile_is_not_silently_accepted(self):
         self.assertNotIn("unknown", PROFILES)

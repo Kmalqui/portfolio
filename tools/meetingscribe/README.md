@@ -4,6 +4,12 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
+## New in 0.3.15 beta — pause and resume one meeting
+
+Select **Pause** while recording to temporarily stop adding microphone audio, meeting audio, screen frames, and live-transcript batches. The button changes to **Resume**. Resuming continues in the same meeting folder and the same final recording; it does not create a second meeting. The timer counts recorded time and does not include the paused interval.
+
+You can still select **Stop & Create Notes** while paused. Pausing does not finish the transcript or generate the wrap-up—those steps begin only when you stop the meeting.
+
 ## New in 0.3.14 beta — adjustable transcript and visible speaker labels
 
 Use **Expand** above the live transcript when you want to read it with the rest of the notes area hidden. Use **Minimize** when you want more room for your own notes and the wrap-up. The active button changes to **Restore**. You can still drag the divider below the transcript to choose any in-between size.
@@ -124,7 +130,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.14 installer. Use the same installation folder as before.
+2. Run the new 0.3.15 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -167,7 +173,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.14-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.15-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.

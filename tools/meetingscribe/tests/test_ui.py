@@ -321,6 +321,46 @@ class InterfaceTests(unittest.TestCase):
         self.window.transcript_minimize_button.click()
         self.assertEqual(self.window.transcript_view, "normal")
 
+    def test_recording_can_pause_and_resume_without_stopping(self):
+        self.window.recording = True
+        self.window.started_at = 90
+        self.window.pause_button.setEnabled(True)
+        self.window.live_transcriber = Mock()
+        screen = Mock()
+        screen.is_running.return_value = True
+        self.window.screen_recorder = screen
+        with patch.object(meetingscribe.time, "monotonic", side_effect=[100, 112]), patch.object(
+            self.window.recorder, "pause"
+        ) as pause, patch.object(self.window.recorder, "resume") as resume:
+            self.window.pause_button.click()
+            self.assertTrue(self.window.paused)
+            self.assertTrue(self.window.recording)
+            self.window.update_timer()
+            self.assertEqual(self.window.duration.text(), "00:00:10")
+            self.window.pause_button.click()
+        pause.assert_called_once()
+        resume.assert_called_once()
+        self.assertFalse(self.window.paused)
+        self.assertEqual(self.window.paused_total, 12)
+        self.assertEqual(self.window.pause_button.text(), "Ⅱ  Pause")
+        screen.pause.assert_called_once()
+        screen.resume.assert_called_once()
+        self.window.live_timer.stop()
+        self.window.screen_recorder = None
+        self.window.live_transcriber = None
+        self.window.recording = False
+
+    def test_paused_recording_skips_live_transcript_snapshot(self):
+        self.window.recording = True
+        self.window.paused = True
+        self.window.live_transcriber = Mock()
+        with patch.object(self.window.recorder, "live_snapshot") as snapshot:
+            self.window.request_live_transcription()
+        snapshot.assert_not_called()
+        self.window.live_transcriber = None
+        self.window.recording = False
+        self.window.paused = False
+
     def test_screen_capture_can_stop_without_stopping_audio(self):
         recorder = Mock()
         recorder.is_running.return_value = True
