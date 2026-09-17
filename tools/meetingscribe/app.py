@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import sys
 import subprocess
 import threading
@@ -54,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.12-beta"
+APP_VERSION = "0.3.17-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -89,6 +90,11 @@ QFrame#consentCard {
     background: #fff8e8;
     border: 1px solid #ead39a;
     border-radius: 12px;
+}
+QFrame#commandDock {
+    background: #e8eee8;
+    border: 1px solid #d4ded5;
+    border-radius: 14px;
 }
 QLabel#consentTitle { color: #765612; font-weight: 700; }
 QComboBox, QSpinBox {
@@ -137,6 +143,17 @@ QPushButton#recordButton:hover { background: #aed94c; }
 QPushButton#recordButton:disabled { background: #e0e9cf; color: #738365; }
 QPushButton#recordButton[recording="true"] { background: #dc5b55; color: #ffffff; }
 QPushButton#recordButton[processing="true"] { background: #315c4d; color: #ffffff; }
+QPushButton#commandButton {
+    min-height: 46px;
+    padding: 3px 16px;
+    border-radius: 10px;
+}
+QPushButton#transcriptNav {
+    min-height: 28px;
+    padding: 1px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+}
 QLabel#timer {
     min-width: 112px;
     padding: 8px 12px;
@@ -181,6 +198,7 @@ QLabel#fieldLabel { color: #d1e1d6; }
 QFrame#card, QFrame#workspaceCard { background: #202d26; border-color: #3a4e40; }
 QFrame#meterPanel { background: #19251f; border-color: #3a4e40; }
 QFrame#consentCard { background: #332d1d; border-color: #71613a; }
+QFrame#commandDock { background: #1b2821; border-color: #3a4e40; }
 QLabel#consentTitle, QCheckBox { color: #f2d68e; }
 QComboBox, QSpinBox, QPlainTextEdit { background: #17221c; color: #e4eee8; border-color: #4b6051; selection-background-color: #436729; selection-color: #ffffff; }
 QComboBox QAbstractItemView { background: #202d26; color: #e4eee8; selection-background-color: #436729; }
@@ -297,6 +315,7 @@ class Recorder(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._stop = threading.Event()
+        self._pause = threading.Event()
         self._threads: list[threading.Thread] = []
         self._mic_chunks: list[np.ndarray] = []
         self._system_chunks: list[np.ndarray] = []
@@ -314,6 +333,7 @@ class Recorder(QObject):
 
     def start(self, selection: AudioSelection) -> None:
         self._stop.clear()
+        self._pause.clear()
         self._mic_chunks = []
         self._system_chunks = []
         self._live_cursor = 0
@@ -375,6 +395,8 @@ class Recorder(QObject):
                     original = stack.enter_context(sf.SoundFile(str(self.original_folder / filename), mode="w", samplerate=SAMPLE_RATE, channels=1, subtype="PCM_16"))
                 while not self._stop.is_set():
                     block = recorder.record(numframes=BLOCK_SIZE)
+                    if self._pause.is_set():
+                        continue
                     if block.ndim == 2:
                         block = np.mean(block, axis=1)
                     block = np.asarray(block, dtype=np.float32)
@@ -389,6 +411,16 @@ class Recorder(QObject):
         except Exception as exc:
             self.error.emit(f"Could not record {device.name}: {exc}")
             self._stop.set()
+
+    def pause(self) -> None:
+        self._pause.set()
+        self.level.emit(0, 0)
+
+    def resume(self) -> None:
+        self._pause.clear()
+
+    def is_paused(self) -> bool:
+        return self._pause.is_set()
 
     def stop(self, destination: Path) -> Path:
         self._stop.set()
@@ -656,7 +688,10 @@ class MeetingScribeWindow(QMainWindow):
         self.recorder.level.connect(self.update_levels)
         self.recorder.error.connect(self.show_error)
         self.recording = False
+        self.paused = False
         self.started_at = 0.0
+        self.paused_at = 0.0
+        self.paused_total = 0.0
         self.current_folder: Path | None = None
         self.current_audio: Path | None = None
         self.worker_thread: QThread | None = None
@@ -665,6 +700,7 @@ class MeetingScribeWindow(QMainWindow):
         self._update_checking = False
         self._update_downloading = False
         self._available_update = None
+        self._ollama_process = None
         self.update_jobs = updater.UpdateJobs(self)
         self.update_jobs.checked.connect(self.update_checked)
         self.update_jobs.downloaded.connect(self.update_downloaded)
@@ -865,13 +901,22 @@ class MeetingScribeWindow(QMainWindow):
         overview.addLayout(readiness, 1)
         layout.addLayout(overview)
 
-        controls = QHBoxLayout()
+        command_dock = QFrame()
+        command_dock.setObjectName("commandDock")
+        controls = QHBoxLayout(command_dock)
+        controls.setContentsMargins(7, 7, 7, 7)
         controls.setSpacing(10)
         self.record_button = QPushButton("●  Start Recording")
         self.record_button.setObjectName("recordButton")
         self.record_button.setEnabled(False)
         self.record_button.clicked.connect(self.toggle_recording)
         self.consent_checkbox.toggled.connect(self.record_button.setEnabled)
+        self.pause_button = QPushButton("Ⅱ  Pause")
+        self.pause_button.setObjectName("commandButton")
+        self.pause_button.setAccessibleName("Pause recording")
+        self.pause_button.setToolTip("Pause audio, screen recording, and live transcription without ending this meeting.")
+        self.pause_button.setEnabled(False)
+        self.pause_button.clicked.connect(self.toggle_pause)
         self.screen_toggle = QPushButton("▣  Screen record off")
         self.screen_toggle.setObjectName("screenToggle")
         self.screen_toggle.setCheckable(True)
@@ -880,14 +925,28 @@ class MeetingScribeWindow(QMainWindow):
             "Include your selected screen in this meeting. Use Settings → Screen options to change the screen or quality."
         )
         self.screen_toggle.toggled.connect(self.toggle_screen_quick)
+        self.screen_combo = QComboBox()
+        self.screen_combo.setObjectName("screenPicker")
+        self.screen_combo.setAccessibleName("Screen to record")
+        self.screen_combo.setToolTip("Choose which screen MeetingScribe will record.")
+        self.screen_combo.currentIndexChanged.connect(self.change_screen)
+        self.refresh_screen_choices()
+        self.capture_button = QPushButton("Audio only")
+        self.capture_button.setObjectName("commandButton")
+        self.capture_button.setAccessibleName("Capture options")
+        self.capture_button.setToolTip("Choose audio only or select a screen to include.")
+        self.capture_menu = QMenu(self.capture_button)
+        self.capture_button.setMenu(self.capture_menu)
+        self.refresh_capture_menu()
         self.duration = QLabel("00:00:00")
         self.duration.setObjectName("timer")
         self.duration.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.duration.setFont(QFont("Consolas", 18))
         controls.addWidget(self.record_button, 1)
-        controls.addWidget(self.screen_toggle)
+        controls.addWidget(self.pause_button)
+        controls.addWidget(self.capture_button)
         controls.addWidget(self.duration)
-        layout.addLayout(controls)
+        layout.addWidget(command_dock)
 
         self.status_label = QLabel("Ready — audio never leaves this computer.")
         self.status_label.setObjectName("statusPill")
@@ -902,11 +961,11 @@ class MeetingScribeWindow(QMainWindow):
         transcript_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         transcript_layout = QVBoxLayout(transcript_panel)
         transcript_layout.setContentsMargins(13, 10, 13, 13)
-        transcript_label = QLabel("✦  Live transcript · we'll do the typing")
+        transcript_label = QLabel("✦  Live transcript · speaker labels appear after Stop")
         transcript_label.setObjectName("fieldLabel")
         transcript_header = QHBoxLayout()
         transcript_header.addWidget(transcript_label, 1)
-        self.live_mode_combo = QComboBox()
+        self.live_mode_combo = QComboBox(transcript_panel)
         self.live_mode_combo.setObjectName("liveMode")
         self.live_mode_combo.addItem("Eco — lowest load", "eco")
         self.live_mode_combo.addItem("Balanced — clearer preview", "balanced")
@@ -915,8 +974,48 @@ class MeetingScribeWindow(QMainWindow):
         self.live_mode_combo.setCurrentIndex(max(0, saved_live_mode))
         self.live_mode_combo.setAccessibleName("Live transcription resource use")
         self.live_mode_combo.setToolTip("Eco uses a smaller CPU model and updates about every 12 seconds when it can keep up. Balanced uses a larger preview model. Final transcription quality is unchanged. Choose before recording.")
-        self.live_mode_combo.currentIndexChanged.connect(lambda: self.settings.setValue("live_mode", self.live_mode_combo.currentData()))
-        transcript_header.addWidget(self.live_mode_combo)
+        self.live_mode_combo.currentIndexChanged.connect(self.change_live_mode)
+        self.live_mode_combo.hide()
+        self.speaker_labels_combo = QComboBox(transcript_panel)
+        self.speaker_labels_combo.setAccessibleName("Final transcript speaker labels")
+        self.speaker_labels_combo.setToolTip(
+            "Adds Myself and Speaker labels to the final transcript after recording stops. The live preview remains unlabeled."
+        )
+        self.speaker_labels_combo.addItem("Final speakers: off", 0)
+        for count in range(1, 5):
+            self.speaker_labels_combo.addItem(
+                f"Final: Myself + {count}", count
+            )
+        enabled, other_speakers = self.speaker_label_options()
+        self.speaker_labels_combo.setCurrentIndex(
+            self.speaker_labels_combo.findData(other_speakers if enabled else 0)
+        )
+        self.speaker_labels_combo.currentIndexChanged.connect(self.change_speaker_labels)
+        self.speaker_labels_combo.hide()
+        self.transcript_options_button = QPushButton()
+        self.transcript_options_button.setObjectName("transcriptNav")
+        self.transcript_options_button.setAccessibleName("Transcript options")
+        self.transcript_options_menu = QMenu(self.transcript_options_button)
+        self.transcript_options_button.setMenu(self.transcript_options_menu)
+        transcript_header.addWidget(self.transcript_options_button)
+        self.transcript_minimize_button = QPushButton("Minimize", transcript_panel)
+        self.transcript_minimize_button.setToolTip("Shrink the live transcript to make more room for your notes.")
+        self.transcript_minimize_button.clicked.connect(lambda: self.resize_transcript("minimized"))
+        self.transcript_minimize_button.hide()
+        self.transcript_expand_button = QPushButton("Expand", transcript_panel)
+        self.transcript_expand_button.setToolTip("Expand the live transcript for easier reading.")
+        self.transcript_expand_button.clicked.connect(lambda: self.resize_transcript("expanded"))
+        self.transcript_expand_button.hide()
+        self.transcript_view_button = QPushButton("View · Balanced")
+        self.transcript_view_button.setObjectName("transcriptNav")
+        self.transcript_view_button.setAccessibleName("Transcript size")
+        view_menu = QMenu(self.transcript_view_button)
+        view_menu.addAction("Full transcript", lambda: self.resize_transcript("expanded"))
+        view_menu.addAction("Balanced layout", lambda: self.resize_transcript("normal"))
+        view_menu.addAction("Compact transcript", lambda: self.resize_transcript("minimized"))
+        self.transcript_view_button.setMenu(view_menu)
+        transcript_header.addWidget(self.transcript_view_button)
+        self.refresh_transcript_menu()
         transcript_layout.addLayout(transcript_header)
         transcript_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.live_transcript = NotesEditor()
@@ -925,6 +1024,9 @@ class MeetingScribeWindow(QMainWindow):
             "Your conversation lands here in little batches. Start recording when everyone is ready."
         )
         transcript_layout.addWidget(self.live_transcript, 1)
+        self.workspace = workspace
+        self.transcript_view = "normal"
+        self.transcript_normal_sizes = [250, 270]
         workspace.addWidget(transcript_panel)
 
         personal_panel = QFrame()
@@ -967,7 +1069,9 @@ class MeetingScribeWindow(QMainWindow):
         notes_splitter.addWidget(ai_panel)
         notes_splitter.setSizes([470, 470])
         workspace.addWidget(notes_splitter)
-        workspace.setSizes([250, 270])
+        workspace.setCollapsible(0, True)
+        workspace.setCollapsible(1, True)
+        workspace.setSizes(self.transcript_normal_sizes)
         layout.addWidget(workspace, 1)
 
         bottom = QHBoxLayout()
@@ -995,6 +1099,14 @@ class MeetingScribeWindow(QMainWindow):
         self.settings_menu.addSeparator()
         self.settings_menu.addAction("Customize Summary…", self.edit_template)
         self.settings_menu.addAction("Refresh Devices", self.refresh_all)
+        self.settings_menu.addSeparator()
+        self.start_ollama_action = self.settings_menu.addAction("Start Ollama now", lambda: self.start_ollama(manual=True))
+        self.auto_ollama_action = QAction("Start Ollama with MeetingScribe", self.settings_menu)
+        self.auto_ollama_action.setCheckable(True)
+        self.auto_ollama_action.setChecked(self.settings.value("start_ollama", True, type=bool))
+        self.auto_ollama_action.setToolTip("Starts the local Ollama service when MeetingScribe opens. No models are downloaded.")
+        self.auto_ollama_action.toggled.connect(lambda enabled: self.settings.setValue("start_ollama", enabled))
+        self.settings_menu.addAction(self.auto_ollama_action)
         self.settings_menu.addSeparator()
         self.update_action = self.settings_menu.addAction("Check for updates", self.update_clicked)
         self.auto_update_action = QAction("Check for updates on startup", self.settings_menu)
@@ -1035,17 +1147,178 @@ class MeetingScribeWindow(QMainWindow):
             profile=profile,
         )
 
+    def refresh_screen_choices(self):
+        if not hasattr(self, "screen_combo"):
+            return
+        selected = self.settings.value("screen_monitor", 1, type=int)
+        self.screen_combo.blockSignals(True)
+        self.screen_combo.clear()
+        try:
+            monitors = available_monitors()
+        except Exception:
+            monitors = []
+        for number, monitor in enumerate(monitors, 1):
+            self.screen_combo.addItem(
+                f"Screen {number} · {monitor['width']}×{monitor['height']}", number
+            )
+        if not monitors:
+            self.screen_combo.addItem("No screen found", None)
+        index = self.screen_combo.findData(selected)
+        self.screen_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.screen_combo.blockSignals(False)
+        self.screen_combo.hide()
+        if hasattr(self, "capture_button"):
+            self.refresh_capture_menu()
+
+    def change_screen(self):
+        monitor = self.screen_combo.currentData()
+        if monitor is not None:
+            self.settings.setValue("screen_monitor", monitor)
+            if hasattr(self, "capture_button"):
+                self.refresh_capture_menu()
+
+    def choose_capture(self, monitor=None):
+        if monitor is None:
+            self.screen_toggle.setChecked(False)
+            return
+        self.settings.setValue("screen_monitor", monitor)
+        self.screen_toggle.setChecked(True)
+        self.refresh_screen_recording_label()
+
+    def refresh_capture_menu(self):
+        if not hasattr(self, "capture_menu"):
+            return
+        options = self.screen_options()
+        self.capture_menu.clear()
+        audio_only = self.capture_menu.addAction("Audio only")
+        audio_only.setCheckable(True)
+        audio_only.setChecked(not options.enabled)
+        audio_only.triggered.connect(lambda _checked=False: self.choose_capture())
+        self.capture_menu.addSection("Include a screen")
+        for index in range(self.screen_combo.count()):
+            monitor = self.screen_combo.itemData(index)
+            if monitor is None:
+                continue
+            action = self.capture_menu.addAction(self.screen_combo.itemText(index))
+            action.setCheckable(True)
+            action.setChecked(options.enabled and monitor == options.monitor)
+            action.triggered.connect(
+                lambda _checked=False, selected=monitor: self.choose_capture(selected)
+            )
+        self.capture_menu.addSeparator()
+        self.capture_menu.addAction("Screen quality…", self.configure_screen_recording)
+        self.capture_button.setText(
+            f"Screen {options.monitor}" if options.enabled else "Audio only"
+        )
+
+    def change_live_mode(self):
+        self.settings.setValue("live_mode", self.live_mode_combo.currentData())
+        if hasattr(self, "transcript_options_button"):
+            self.refresh_transcript_menu()
+
+    def choose_live_mode(self, mode):
+        self.live_mode_combo.setCurrentIndex(self.live_mode_combo.findData(mode))
+
+    def choose_speaker_labels(self, others):
+        self.speaker_labels_combo.setCurrentIndex(
+            self.speaker_labels_combo.findData(others)
+        )
+
+    def refresh_transcript_menu(self):
+        if not hasattr(self, "transcript_options_menu"):
+            return
+        menu = self.transcript_options_menu
+        menu.clear()
+        menu.addSection("Live preview")
+        live_note = menu.addAction("Controls how often live text updates")
+        live_note.setEnabled(False)
+        live_labels = {
+            "eco": "Eco — lowest load",
+            "balanced": "Balanced — clearer preview",
+            "off": "Off — final transcript only",
+        }
+        live_mode = self.live_mode_combo.currentData()
+        for mode, label in live_labels.items():
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(mode == live_mode)
+            action.setEnabled(not self.recording)
+            action.triggered.connect(
+                lambda _checked=False, selected=mode: self.choose_live_mode(selected)
+            )
+        menu.addSection("Final speaker labels")
+        speaker_note = menu.addAction("Added after Stop & Create Notes")
+        speaker_note.setEnabled(False)
+        enabled, others = self.speaker_label_options()
+        for count in range(5):
+            label = "Off" if count == 0 else f"Myself + {count} other"
+            if count > 1:
+                label += "s"
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked((others if enabled else 0) == count)
+            action.triggered.connect(
+                lambda _checked=False, selected=count: self.choose_speaker_labels(selected)
+            )
+        preview = "Eco live text" if live_mode == "eco" else ("Balanced live text" if live_mode == "balanced" else "Live text off")
+        speakers = f"Final labels: Myself + {others}" if enabled else "Final labels off"
+        self.transcript_options_button.setText(f"{preview} · {speakers}")
+        self.transcript_options_button.setToolTip(
+            "Live text is unlabeled. Myself, Speaker 1, and Speaker 2 are added to the final transcript after you stop."
+        )
+
     def speaker_label_options(self):
         return (
             self.settings.value("speaker_labels/enabled", False, type=bool),
             max(1, min(4, self.settings.value("speaker_labels/others", 2, type=int))),
         )
 
+    def change_speaker_labels(self):
+        others = self.speaker_labels_combo.currentData()
+        self.settings.setValue("speaker_labels/enabled", bool(others))
+        if self.recording:
+            self.recorder.preserve_tracks = bool(others)
+        if others:
+            self.settings.setValue("speaker_labels/others", others)
+            self.status_label.setText(
+                "Final speaker labels are on. They will appear after Stop & Create Notes."
+            )
+        elif self.recording:
+            self.status_label.setText("Final speaker labels are off for this meeting.")
+        self.refresh_speaker_label()
+        self.refresh_transcript_menu()
+
+    def resize_transcript(self, view):
+        if view == self.transcript_view:
+            view = "normal"
+        if self.transcript_view == "normal":
+            current = self.workspace.sizes()
+            if all(current):
+                self.transcript_normal_sizes = current
+        if view == "expanded":
+            self.workspace.setSizes([1000, 0])
+        elif view == "minimized":
+            self.workspace.setSizes([70, 1000])
+        else:
+            self.workspace.setSizes(self.transcript_normal_sizes)
+        self.transcript_view = view
+        self.transcript_expand_button.setText("Restore" if view == "expanded" else "Expand")
+        self.transcript_minimize_button.setText("Restore" if view == "minimized" else "Minimize")
+        if hasattr(self, "transcript_view_button"):
+            labels = {"expanded": "View · Full", "minimized": "View · Compact", "normal": "View · Balanced"}
+            self.transcript_view_button.setText(labels[view])
+
     def refresh_speaker_label(self):
         enabled, others = self.speaker_label_options()
         self.speaker_action.setText(
             f"Speaker labels: Myself + {others}…" if enabled else "Speaker labels: off…"
         )
+        if hasattr(self, "speaker_labels_combo"):
+            self.speaker_labels_combo.blockSignals(True)
+            self.speaker_labels_combo.setCurrentIndex(
+                self.speaker_labels_combo.findData(others if enabled else 0)
+            )
+            self.speaker_labels_combo.blockSignals(False)
 
     def configure_speaker_labels(self):
         if self.recording:
@@ -1105,6 +1378,15 @@ class MeetingScribeWindow(QMainWindow):
                 "Include your selected screen in this meeting. Use Settings → Screen options to change the screen or quality."
             )
             self.screen_toggle.blockSignals(False)
+        if hasattr(self, "screen_combo"):
+            self.screen_combo.hide()
+            selected = self.screen_combo.findData(options.monitor)
+            if selected >= 0:
+                self.screen_combo.blockSignals(True)
+                self.screen_combo.setCurrentIndex(selected)
+                self.screen_combo.blockSignals(False)
+        if hasattr(self, "capture_button"):
+            self.refresh_capture_menu()
         self.consent_checkbox.setText(
             "I have permission to record audio and the screen."
             if options.enabled else "I have permission to record this meeting."
@@ -1123,6 +1405,7 @@ class MeetingScribeWindow(QMainWindow):
                 return
             if self.screen_options().monitor > len(monitors):
                 self.settings.setValue("screen_monitor", 1)
+            self.refresh_screen_choices()
         self.settings.setValue("screen_enabled", bool(enabled))
         self.refresh_screen_recording_label()
         self.status_label.setText(
@@ -1190,6 +1473,7 @@ class MeetingScribeWindow(QMainWindow):
         if monitor_combo.currentData() is not None:
             self.settings.setValue("screen_monitor", monitor_combo.currentData())
         self.settings.setValue("screen_profile", quality_combo.currentData())
+        self.refresh_screen_choices()
         self.refresh_screen_recording_label()
 
     def start_screen_recording(self):
@@ -1233,8 +1517,87 @@ class MeetingScribeWindow(QMainWindow):
 
     def startup_updates(self):
         self.restore_update_draft()
+        if self.auto_ollama_action.isChecked():
+            self.start_ollama(manual=False)
         if self.auto_update_action.isChecked():
             self.check_updates(manual=False)
+
+    @staticmethod
+    def ollama_executable():
+        found = shutil.which("ollama")
+        if found:
+            return Path(found)
+        candidates = []
+        if sys.platform == "win32":
+            local_app_data = os.environ.get("LOCALAPPDATA")
+            program_files = os.environ.get("ProgramFiles")
+            if local_app_data:
+                candidates.append(Path(local_app_data) / "Programs" / "Ollama" / "ollama.exe")
+            if program_files:
+                candidates.append(Path(program_files) / "Ollama" / "ollama.exe")
+        elif sys.platform == "darwin":
+            candidates.extend((
+                Path("/Applications/Ollama.app/Contents/Resources/ollama"),
+                Path("/opt/homebrew/bin/ollama"),
+                Path("/usr/local/bin/ollama"),
+            ))
+        return next((path for path in candidates if path.is_file()), None)
+
+    @staticmethod
+    def ollama_is_running(timeout=0.8):
+        try:
+            response = requests.get("http://127.0.0.1:11434/api/tags", timeout=timeout)
+            return response.ok
+        except requests.RequestException:
+            return False
+
+    def start_ollama(self, manual=False):
+        if self.ollama_is_running():
+            self.refresh_models()
+            self.status_label.setText("Ollama is ready — your AI notes stay on this computer.")
+            return True
+        executable = self.ollama_executable()
+        if not executable:
+            if manual:
+                QMessageBox.information(
+                    self,
+                    "Ollama is not installed",
+                    "MeetingScribe could not find Ollama. Run the MeetingScribe installer again or install Ollama, then choose Start Ollama now.",
+                )
+            return False
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        try:
+            self._ollama_process = subprocess.Popen([str(executable), "serve"], **kwargs)
+        except OSError as exc:
+            if manual:
+                QMessageBox.warning(self, "Could not start Ollama", str(exc))
+            return False
+        self.status_label.setText("Starting Ollama in the background…")
+        QTimer.singleShot(1200, lambda: self.finish_ollama_start(manual, 3))
+        return True
+
+    def finish_ollama_start(self, manual=False, attempts_left=0):
+        if self.ollama_is_running():
+            self.refresh_models()
+            self.status_label.setText("Ollama is ready — your AI notes stay on this computer.")
+            return
+        if attempts_left > 0:
+            QTimer.singleShot(1200, lambda: self.finish_ollama_start(manual, attempts_left - 1))
+            return
+        self.refresh_models()
+        self.status_label.setText("Ollama did not start. Open Settings and choose Start Ollama now.")
+        if manual:
+            QMessageBox.warning(
+                self,
+                "Ollama did not start",
+                "Open Ollama once from the Start menu, then return to MeetingScribe and try again.",
+            )
 
     def update_clicked(self):
         if self._update_downloading:
@@ -1384,6 +1747,7 @@ class MeetingScribeWindow(QMainWindow):
     def refresh_all(self):
         self.refresh_devices()
         self.refresh_models()
+        self.refresh_screen_choices()
 
     def refresh_devices(self):
         prior_mic = self.settings.value("microphone_id", "")
@@ -1500,6 +1864,37 @@ class MeetingScribeWindow(QMainWindow):
         else:
             self.start_recording()
 
+    def toggle_pause(self):
+        if not self.recording:
+            return
+        if self.paused:
+            now = time.monotonic()
+            self.paused_total += max(0, now - self.paused_at)
+            self.paused_at = 0.0
+            self.paused = False
+            self.recorder.resume()
+            if self.screen_recorder and self.screen_recorder.is_running():
+                self.screen_recorder.resume()
+            if self.live_transcriber:
+                self.live_timer.start()
+            self.pause_button.setText("Ⅱ  Pause")
+            self.pause_button.setAccessibleName("Pause recording")
+            self.mic_state.setText("Listening…")
+            self.system_state.setText("Listening…")
+            self.status_label.setText("● Recording resumed — continuing in the same meeting.")
+        else:
+            self.paused = True
+            self.paused_at = time.monotonic()
+            self.recorder.pause()
+            if self.screen_recorder and self.screen_recorder.is_running():
+                self.screen_recorder.pause()
+            self.live_timer.stop()
+            self.pause_button.setText("▶  Resume")
+            self.pause_button.setAccessibleName("Resume recording")
+            self.mic_state.setText("Paused")
+            self.system_state.setText("Paused")
+            self.status_label.setText("Paused — nothing is being added to this meeting. Select Resume when ready.")
+
     def start_recording(self):
         if self._update_downloading:
             return
@@ -1546,17 +1941,25 @@ class MeetingScribeWindow(QMainWindow):
         self.settings.setValue("ollama_model", self.model_combo.currentText())
         self.settings.setValue("whisper", self.whisper_combo.currentText())
         self.recording = True
+        self.paused = False
+        self.paused_total = 0.0
+        self.paused_at = 0.0
         self.clarity_button.setEnabled(False)
         self.screen_toggle.setEnabled(False)
+        self.capture_button.setEnabled(False)
         self.last_mic_sound = self.last_system_sound = time.monotonic()
         self.consent_checkbox.setEnabled(False)
         self.mic_state.setText("Listening…")
         self.system_state.setText("Listening…")
         self.started_at = time.monotonic()
+        self.pause_button.setEnabled(True)
+        self.pause_button.setText("Ⅱ  Pause")
         self.timer.start(250)
         self.live_transcript.clear()
         live_mode = self.live_mode_combo.currentData()
         self.live_mode_combo.setEnabled(False)
+        self.speaker_labels_combo.setEnabled(False)
+        self.refresh_transcript_menu()
         self.live_transcriber = None
         if live_mode != "off":
             preview_model, threads, prefer_gpu, interval = LIVE_PROFILES[live_mode]
@@ -1585,6 +1988,9 @@ class MeetingScribeWindow(QMainWindow):
         self.stop_screen_recording(wait=True)
         self.set_screen_indicator(False)
         self.recording = False
+        self.paused = False
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText("Ⅱ  Pause")
         self.record_button.setEnabled(False)
         self._set_record_button_state("processing")
         try:
@@ -1628,7 +2034,10 @@ class MeetingScribeWindow(QMainWindow):
     def processing_completed(self, transcript: str, notes: str):
         self.clarity_button.setEnabled(True)
         self.screen_toggle.setEnabled(True)
+        self.capture_button.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
+        self.speaker_labels_combo.setEnabled(True)
+        self.refresh_transcript_menu()
         self.live_transcript.setPlainText(transcript)
         (self.current_folder / "transcript.txt").write_text(transcript, encoding="utf-8")
         self.save_personal_notes()
@@ -1651,17 +2060,24 @@ class MeetingScribeWindow(QMainWindow):
         self.system_state.setText("Starts listening when recording begins")
         self.save_button.setEnabled(True)
         self.current_meeting_action.setEnabled(True)
+        self.pause_button.setEnabled(False)
 
     def processing_failed(self, message: str):
         self.clarity_button.setEnabled(True)
         self.screen_toggle.setEnabled(True)
+        self.capture_button.setEnabled(True)
         self.live_mode_combo.setEnabled(True)
+        self.speaker_labels_combo.setEnabled(True)
+        self.refresh_transcript_menu()
         self._set_record_button_state("idle")
         self.consent_checkbox.setEnabled(True)
         self.consent_checkbox.setChecked(False)
         self.mic_state.setText("Starts listening when recording begins")
         self.system_state.setText("Starts listening when recording begins")
         self.status_label.setText(f"Could not finish: {message}")
+        self.paused = False
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText("Ⅱ  Pause")
         self.show_error(message)
 
     def update_levels(self, mic: float, system: float):
@@ -1680,7 +2096,7 @@ class MeetingScribeWindow(QMainWindow):
             )
 
     def request_live_transcription(self):
-        if not self.recording or not self.live_transcriber or not self.live_transcriber.can_accept():
+        if self.paused or not self.recording or not self.live_transcriber or not self.live_transcriber.can_accept():
             return
         snapshot = self.recorder.live_snapshot()
         if not snapshot:
@@ -1729,7 +2145,8 @@ class MeetingScribeWindow(QMainWindow):
         )
 
     def update_timer(self):
-        elapsed = int(time.monotonic() - self.started_at)
+        now = self.paused_at if self.paused else time.monotonic()
+        elapsed = max(0, int(now - self.started_at - self.paused_total))
         self.duration.setText(
             f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
         )

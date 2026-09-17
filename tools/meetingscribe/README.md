@@ -4,6 +4,38 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
+## New in 0.3.17 beta — clearer speaker-label controls
+
+The transcript menu now says **Final labels off** or **Final labels: Myself + number** instead of the ambiguous “Speakers off.” The menu explains that the live preview is unlabeled and that **Myself**, **Speaker 1**, **Speaker 2**, and later labels appear only after **Stop & Create Notes** finishes the final transcript.
+
+You can turn final speaker labels on or change the expected number of other voices while a meeting is recording. MeetingScribe applies that choice to the complete meeting when you stop. Live-preview quality remains locked during recording because changing its model requires restarting the preview worker.
+
+## New in 0.3.16 beta — a cleaner recording dock
+
+The recording controls are now one compact command dock: the main recording action, Pause or Resume, a **Capture** menu, and the timer. Open **Capture** to switch between audio only and any connected screen; the button always summarizes the current choice.
+
+The transcript header now uses two small navigation menus. The first summarizes live-preview quality and final speaker labels, with both settings inside. **View** switches the transcript between Compact, Balanced, and Full layouts. This replaces the row of separate quality, speaker, Minimize, and Expand controls without hiding their current state.
+
+## New in 0.3.15 beta — pause and resume one meeting
+
+Select **Pause** while recording to temporarily stop adding microphone audio, meeting audio, screen frames, and live-transcript batches. The button changes to **Resume**. Resuming continues in the same meeting folder and the same final recording; it does not create a second meeting. The timer counts recorded time and does not include the paused interval.
+
+You can still select **Stop & Create Notes** while paused. Pausing does not finish the transcript or generate the wrap-up—those steps begin only when you stop the meeting.
+
+## New in 0.3.14 beta — adjustable transcript and visible speaker labels
+
+Use **Expand** above the live transcript when you want to read it with the rest of the notes area hidden. Use **Minimize** when you want more room for your own notes and the wrap-up. The active button changes to **Restore**. You can still drag the divider below the transcript to choose any in-between size.
+
+The speaker-label choice is now visible beside the live-transcription quality setting. Choose **Final speakers: off** or **Final: Myself + 1–4** before recording. Speaker labels are produced locally during final processing after you stop recording; they do not appear in the lightweight live preview. The final transcript will use **Myself**, **Speaker 1**, **Speaker 2**, and so on. Voice grouping is experimental, so review the labels before sharing notes.
+
+## New in 0.3.13 beta — Ollama starts with MeetingScribe
+
+MeetingScribe now checks whether the local Ollama service is available when the app opens. If Ollama is installed but stopped, MeetingScribe starts it quietly in the background. This is enabled by default; turn off **Settings → Start Ollama with MeetingScribe** if you prefer to start it yourself. Choose **Settings → Start Ollama now** if the service needs to be restarted manually.
+
+Ordinary startup does not reinstall Ollama, download a model, or send meeting content online. MeetingScribe leaves the Ollama service running when it closes because other local apps may also be using it.
+
+When **Screen record on** is selected, a compact screen picker now appears beside the button. Choose **Screen 1**, **Screen 2**, and so on before starting the meeting. The picker includes each display's resolution to make multiple monitors easier to identify. It disappears in audio-only mode to keep the recording controls tidy.
+
 ## New in 0.3.12 beta — optional screen recording
 
 Click the compact **Screen record off** button beside **Start Recording** to include your screen; it changes to **Screen record on**. Click it again for audio only. Use **Settings → Screen options** only when you want to select a different monitor or quality level. Screen capture is off by default. Video is saved as `screen-recording.mp4` in the same dated folder as the transcript and notes. `screen-settings.json` records the selected monitor and quality.
@@ -110,7 +142,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.12 installer. Use the same installation folder as before.
+2. Run the new 0.3.17 installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -153,7 +185,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.12-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.3.17-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.

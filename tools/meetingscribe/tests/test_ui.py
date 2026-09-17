@@ -198,8 +198,11 @@ class InterfaceTests(unittest.TestCase):
 
     def test_update_startup_preference_and_manual_check(self):
         self.window.auto_update_action.setChecked(False)
-        with patch.object(self.window, "restore_update_draft"), patch.object(self.window.update_jobs, "check") as check:
+        with patch.object(self.window, "restore_update_draft"), patch.object(
+            self.window, "start_ollama"
+        ) as start_ollama, patch.object(self.window.update_jobs, "check") as check:
             self.window.startup_updates()
+            start_ollama.assert_called_once_with(manual=False)
             check.assert_not_called()
             self.window.check_updates(manual=True)
             check.assert_called_once_with(meetingscribe.APP_VERSION, True)
@@ -213,6 +216,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("Check for updates", labels)
         self.assertIn("Screen options…", labels)
         self.assertIn("Speaker labels: off…", labels)
+        self.assertIn("Start Ollama now", labels)
+        self.assertTrue(self.window.auto_ollama_action.isChecked())
         self.assertTrue(self.window.auto_update_action.isCheckable())
         self.assertIs(self.window.settings_button.menu(), self.window.settings_menu)
         self.assertFalse(any(child.metaObject().className() == "QStatusBar" for child in self.window.children()))
@@ -232,19 +237,159 @@ class InterfaceTests(unittest.TestCase):
 
     def test_compact_screen_toggle_enables_capture_without_opening_settings(self):
         self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+        self.assertFalse(self.window.screen_combo.isVisible())
         with patch.object(meetingscribe, "available_monitors", return_value=[{"width": 1920, "height": 1080}]):
-            self.window.screen_toggle.click()
+            self.window.choose_capture(1)
         self.assertTrue(self.window.screen_options().enabled)
         self.assertEqual(self.window.screen_toggle.text(), "●  Screen record on")
-        self.window.screen_toggle.click()
+        self.assertFalse(self.window.screen_combo.isVisible())
+        self.assertEqual(self.window.capture_button.text(), "Screen 1")
+        self.assertEqual(self.window.screen_combo.currentData(), 1)
+        self.window.choose_capture()
         self.assertFalse(self.window.screen_options().enabled)
         self.assertEqual(self.window.screen_toggle.text(), "▣  Screen record off")
+        self.assertEqual(self.window.capture_button.text(), "Audio only")
+        self.assertFalse(self.window.screen_combo.isVisible())
+
+    def test_screen_picker_saves_selected_monitor(self):
+        monitors = [{"width": 1920, "height": 1080}, {"width": 2560, "height": 1440}]
+        with patch.object(meetingscribe, "available_monitors", return_value=monitors):
+            self.window.refresh_screen_choices()
+            self.window.choose_capture(2)
+        self.assertEqual(self.window.screen_options().monitor, 2)
+        self.assertIn("2560×1440", self.window.screen_combo.currentText())
+        self.assertEqual(self.window.capture_button.text(), "Screen 2")
+
+    def test_ollama_startup_can_be_disabled(self):
+        self.window.auto_ollama_action.setChecked(False)
+        self.window.auto_update_action.setChecked(False)
+        with patch.object(self.window, "restore_update_draft"), patch.object(
+            self.window, "start_ollama"
+        ) as start_ollama:
+            self.window.startup_updates()
+        start_ollama.assert_not_called()
+        self.assertFalse(self.test_settings.value("start_ollama", True, type=bool))
+
+    def test_start_ollama_only_launches_when_service_is_stopped(self):
+        executable = Path(self.settings_folder.name) / "ollama.exe"
+        with patch.object(self.window, "ollama_is_running", return_value=False), patch.object(
+            self.window, "ollama_executable", return_value=executable
+        ), patch.object(meetingscribe.subprocess, "Popen") as launch, patch.object(
+            meetingscribe.QTimer, "singleShot"
+        ) as later:
+            self.assertTrue(self.window.start_ollama(manual=False))
+        self.assertEqual(launch.call_args.args[0], [str(executable), "serve"])
+        self.assertEqual(launch.call_args.kwargs["stdin"], meetingscribe.subprocess.DEVNULL)
+        later.assert_called_once()
+
+        with patch.object(self.window, "ollama_is_running", return_value=True), patch.object(
+            self.window, "refresh_models"
+        ) as refresh, patch.object(meetingscribe.subprocess, "Popen") as launch:
+            self.assertTrue(self.window.start_ollama(manual=False))
+        launch.assert_not_called()
+        refresh.assert_called_once()
 
     def test_speaker_labels_default_off_and_allow_myself_plus_two(self):
         self.assertEqual(self.window.speaker_label_options(), (False, 2))
+        self.assertEqual(self.window.speaker_labels_combo.currentData(), 0)
+        self.assertIn("final transcript", self.window.speaker_labels_combo.toolTip())
         self.test_settings.setValue("speaker_labels/enabled", True)
         self.window.refresh_speaker_label()
         self.assertEqual(self.window.speaker_action.text(), "Speaker labels: Myself + 2…")
+        self.assertEqual(self.window.speaker_labels_combo.currentData(), 2)
+        self.window.speaker_labels_combo.setCurrentIndex(
+            self.window.speaker_labels_combo.findData(3)
+        )
+        self.assertEqual(self.window.speaker_label_options(), (True, 3))
+        self.assertIn("after Stop & Create Notes", self.window.status_label.text())
+
+    def test_transcript_can_expand_minimize_and_restore(self):
+        original = self.window.workspace.sizes()
+        self.assertTrue(all(original))
+        self.window.resize_transcript("expanded")
+        self.qt.processEvents()
+        self.assertEqual(self.window.transcript_view, "expanded")
+        self.assertEqual(self.window.transcript_view_button.text(), "View · Full")
+        self.assertEqual(self.window.workspace.sizes()[1], 0)
+        self.window.resize_transcript("normal")
+        self.qt.processEvents()
+        self.assertEqual(self.window.transcript_view, "normal")
+        self.assertTrue(all(self.window.workspace.sizes()))
+        self.window.resize_transcript("minimized")
+        self.qt.processEvents()
+        minimized = self.window.workspace.sizes()
+        self.assertEqual(self.window.transcript_view, "minimized")
+        self.assertEqual(self.window.transcript_view_button.text(), "View · Compact")
+        self.assertLess(minimized[0], minimized[1])
+        self.window.resize_transcript("normal")
+        self.assertEqual(self.window.transcript_view, "normal")
+
+    def test_sleek_nav_replaces_individual_transcript_and_capture_controls(self):
+        self.assertTrue(self.window.capture_button.isVisible())
+        self.assertFalse(self.window.screen_toggle.isVisible())
+        self.assertFalse(self.window.screen_combo.isVisible())
+        self.assertTrue(self.window.transcript_options_button.isVisible())
+        self.assertIn("Eco live text", self.window.transcript_options_button.text())
+        self.assertIn("Final labels off", self.window.transcript_options_button.text())
+        self.assertIn("after you stop", self.window.transcript_options_button.toolTip())
+        self.assertFalse(self.window.live_mode_combo.isVisible())
+        self.assertFalse(self.window.speaker_labels_combo.isVisible())
+        self.assertFalse(self.window.transcript_minimize_button.isVisible())
+        self.assertFalse(self.window.transcript_expand_button.isVisible())
+
+    def test_final_speaker_labels_can_be_enabled_during_recording(self):
+        self.window.recording = True
+        self.window.recorder.preserve_tracks = False
+        self.window.refresh_transcript_menu()
+        self.window.choose_speaker_labels(2)
+        self.assertEqual(self.window.speaker_label_options(), (True, 2))
+        self.assertTrue(self.window.recorder.preserve_tracks)
+        self.assertIn("Final labels: Myself + 2", self.window.transcript_options_button.text())
+        self.assertIn("after Stop & Create Notes", self.window.status_label.text())
+        actions = {action.text(): action for action in self.window.transcript_options_menu.actions()}
+        self.assertFalse(actions["Eco — lowest load"].isEnabled())
+        self.assertTrue(actions["Myself + 2 others"].isEnabled())
+        self.window.recording = False
+
+    def test_recording_can_pause_and_resume_without_stopping(self):
+        self.window.recording = True
+        self.window.started_at = 90
+        self.window.pause_button.setEnabled(True)
+        self.window.live_transcriber = Mock()
+        screen = Mock()
+        screen.is_running.return_value = True
+        self.window.screen_recorder = screen
+        with patch.object(meetingscribe.time, "monotonic", side_effect=[100, 112]), patch.object(
+            self.window.recorder, "pause"
+        ) as pause, patch.object(self.window.recorder, "resume") as resume:
+            self.window.pause_button.click()
+            self.assertTrue(self.window.paused)
+            self.assertTrue(self.window.recording)
+            self.window.update_timer()
+            self.assertEqual(self.window.duration.text(), "00:00:10")
+            self.window.pause_button.click()
+        pause.assert_called_once()
+        resume.assert_called_once()
+        self.assertFalse(self.window.paused)
+        self.assertEqual(self.window.paused_total, 12)
+        self.assertEqual(self.window.pause_button.text(), "Ⅱ  Pause")
+        screen.pause.assert_called_once()
+        screen.resume.assert_called_once()
+        self.window.live_timer.stop()
+        self.window.screen_recorder = None
+        self.window.live_transcriber = None
+        self.window.recording = False
+
+    def test_paused_recording_skips_live_transcript_snapshot(self):
+        self.window.recording = True
+        self.window.paused = True
+        self.window.live_transcriber = Mock()
+        with patch.object(self.window.recorder, "live_snapshot") as snapshot:
+            self.window.request_live_transcription()
+        snapshot.assert_not_called()
+        self.window.live_transcriber = None
+        self.window.recording = False
+        self.window.paused = False
 
     def test_screen_capture_can_stop_without_stopping_audio(self):
         recorder = Mock()
