@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.17-beta"
+APP_VERSION = "0.3.18-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -448,6 +448,15 @@ class Recorder(QObject):
             sf.write(destination.with_name("meeting-audio.wav"), system, SAMPLE_RATE, subtype="PCM_16")
         return destination
 
+    def cancel(self) -> None:
+        """Stop capture without assembling or saving a recording."""
+        self._stop.set()
+        for thread in self._threads:
+            thread.join(timeout=3)
+        self._threads = []
+        self._mic_chunks = []
+        self._system_chunks = []
+
 
 class LiveTranscriber(QObject):
     text_ready = Signal(str)
@@ -550,10 +559,15 @@ class LiveTranscriber(QObject):
         return " ".join(segment.text.strip() for segment in segments).strip()
 
 
+class ProcessingCancelled(Exception):
+    pass
+
+
 class ProcessingWorker(QObject):
     progress = Signal(str)
     completed = Signal(str, str)
     failed = Signal(str)
+    cancelled = Signal()
 
     def __init__(self, audio_path: Path, whisper_model: str, ollama_model: str, prompt: str,
                  speaker_labels: bool = False, other_speakers: int = 2):
@@ -564,10 +578,22 @@ class ProcessingWorker(QObject):
         self.prompt = prompt
         self.speaker_labels = speaker_labels
         self.other_speakers = other_speakers
+        self._cancel = threading.Event()
 
-    @staticmethod
-    def _segments(items) -> list[TranscriptSegment]:
-        return [TranscriptSegment(float(item.start), float(item.end), item.text.strip()) for item in items if item.text.strip()]
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def _check_cancelled(self) -> None:
+        if self._cancel.is_set():
+            raise ProcessingCancelled()
+
+    def _segments(self, items) -> list[TranscriptSegment]:
+        converted = []
+        for item in items:
+            self._check_cancelled()
+            if item.text.strip():
+                converted.append(TranscriptSegment(float(item.start), float(item.end), item.text.strip()))
+        return converted
 
     def _format_transcript(self, segments: list[TranscriptSegment]) -> str:
         if not self.speaker_labels:
@@ -590,6 +616,7 @@ class ProcessingWorker(QObject):
 
     def run(self) -> None:
         try:
+            self._check_cancelled()
             self.progress.emit(f"Loading Whisper {self.whisper_model}…")
             try:
                 model = WhisperModel(self.whisper_model, device="cuda", compute_type="float16")
@@ -597,14 +624,20 @@ class ProcessingWorker(QObject):
                     str(self.audio_path), vad_filter=True, beam_size=5
                 )
                 transcript = self._format_transcript(self._segments(segments))
+                self._check_cancelled()
+            except ProcessingCancelled:
+                raise
             except Exception:
+                self._check_cancelled()
                 self.progress.emit("Using CPU transcription…")
                 model = WhisperModel(self.whisper_model, device="cpu", compute_type="int8")
                 segments, _ = model.transcribe(
                     str(self.audio_path), vad_filter=True, beam_size=5
                 )
                 transcript = self._format_transcript(self._segments(segments))
+                self._check_cancelled()
 
+            self._check_cancelled()
             if not transcript:
                 raise RuntimeError(
                     "No speech was detected. Check the microphone and system-audio meters before recording."
@@ -620,18 +653,31 @@ class ProcessingWorker(QObject):
                 "http://127.0.0.1:11434/api/chat",
                 json={
                     "model": self.ollama_model,
-                    "stream": False,
+                    "stream": True,
                     "messages": [
                         {"role": "system", "content": self.prompt},
                         {"role": "user", "content": user_content},
                     ],
                     "options": {"temperature": 0.2},
                 },
-                timeout=900,
+                stream=True,
+                timeout=(5, 30),
             )
-            response.raise_for_status()
-            notes = response.json()["message"]["content"].strip()
+            try:
+                response.raise_for_status()
+                note_parts = []
+                for line in response.iter_lines():
+                    self._check_cancelled()
+                    if line:
+                        payload = json.loads(line)
+                        note_parts.append(payload.get("message", {}).get("content", ""))
+            finally:
+                response.close()
+            notes = "".join(note_parts).strip()
+            self._check_cancelled()
             self.completed.emit(transcript, notes)
+        except ProcessingCancelled:
+            self.cancelled.emit()
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -695,6 +741,10 @@ class MeetingScribeWindow(QMainWindow):
         self.current_folder: Path | None = None
         self.current_audio: Path | None = None
         self.worker_thread: QThread | None = None
+        self._worker: ProcessingWorker | None = None
+        self._cancelled_processing_threads: set[QThread] = set()
+        self._processing_cancelled = False
+        self._processing_generation = 0
         self.live_transcriber: LiveTranscriber | None = None
         self.screen_recorder: ScreenRecorder | None = None
         self._update_checking = False
@@ -917,6 +967,11 @@ class MeetingScribeWindow(QMainWindow):
         self.pause_button.setToolTip("Pause audio, screen recording, and live transcription without ending this meeting.")
         self.pause_button.setEnabled(False)
         self.pause_button.clicked.connect(self.toggle_pause)
+        self.cancel_button = QPushButton("Cancel meeting")
+        self.cancel_button.setObjectName("cancelButton")
+        self.cancel_button.setToolTip("Stop and discard an accidental recording without creating notes.")
+        self.cancel_button.clicked.connect(self.cancel_current_work)
+        self.cancel_button.hide()
         self.screen_toggle = QPushButton("▣  Screen record off")
         self.screen_toggle.setObjectName("screenToggle")
         self.screen_toggle.setCheckable(True)
@@ -944,6 +999,7 @@ class MeetingScribeWindow(QMainWindow):
         self.duration.setFont(QFont("Consolas", 18))
         controls.addWidget(self.record_button, 1)
         controls.addWidget(self.pause_button)
+        controls.addWidget(self.cancel_button)
         controls.addWidget(self.capture_button)
         controls.addWidget(self.duration)
         layout.addWidget(command_dock)
@@ -1741,6 +1797,15 @@ class MeetingScribeWindow(QMainWindow):
         self.record_button.setText(labels[state])
         self.record_button.setProperty("recording", state == "recording")
         self.record_button.setProperty("processing", state == "processing")
+        self.cancel_button.setVisible(state in ("recording", "processing"))
+        self.cancel_button.setText(
+            "Cancel meeting" if state == "recording" else "Cancel note creation"
+        )
+        self.cancel_button.setToolTip(
+            "Stop and discard this accidental recording without creating notes."
+            if state == "recording"
+            else "Stop creating the transcript and notes. The finished recording and your typed notes will stay saved."
+        )
         self.record_button.style().unpolish(self.record_button)
         self.record_button.style().polish(self.record_button)
 
@@ -1941,6 +2006,7 @@ class MeetingScribeWindow(QMainWindow):
         self.settings.setValue("ollama_model", self.model_combo.currentText())
         self.settings.setValue("whisper", self.whisper_combo.currentText())
         self.recording = True
+        self._processing_cancelled = False
         self.paused = False
         self.paused_total = 0.0
         self.paused_at = 0.0
@@ -1992,6 +2058,7 @@ class MeetingScribeWindow(QMainWindow):
         self.pause_button.setEnabled(False)
         self.pause_button.setText("Ⅱ  Pause")
         self.record_button.setEnabled(False)
+        self._processing_cancelled = False
         self._set_record_button_state("processing")
         try:
             self.recorder.stop(self.current_audio)
@@ -2008,10 +2075,14 @@ class MeetingScribeWindow(QMainWindow):
             QTimer.singleShot(150, self.finish_live_before_processing)
             return
         self.live_transcriber = None
+        if self._processing_cancelled:
+            return
         self.process_audio()
 
     def process_audio(self):
         prompt = self.settings.value("template", DEFAULT_PROMPT)
+        self._processing_generation += 1
+        generation = self._processing_generation
         self.worker_thread = QThread(self)
         worker = ProcessingWorker(
             self.current_audio,
@@ -2020,18 +2091,120 @@ class MeetingScribeWindow(QMainWindow):
             prompt,
             *self.speaker_label_options(),
         )
-        worker.moveToThread(self.worker_thread)
-        self.worker_thread.started.connect(worker.run)
+        thread = self.worker_thread
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
         worker.progress.connect(self.status_label.setText)
-        worker.completed.connect(self.processing_completed)
-        worker.failed.connect(self.processing_failed)
-        worker.completed.connect(self.worker_thread.quit)
-        worker.failed.connect(self.worker_thread.quit)
-        self.worker_thread.finished.connect(worker.deleteLater)
-        self.worker_thread.start()
+        worker.completed.connect(
+            lambda transcript, notes, token=generation: self.processing_completed(
+                transcript, notes, token
+            )
+        )
+        worker.failed.connect(
+            lambda message, token=generation: self.processing_failed(message, token)
+        )
+        worker.completed.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.cancelled.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            lambda finished=thread, finished_worker=worker: self.processing_thread_finished(
+                finished, finished_worker
+            )
+        )
+        thread.start()
         self._worker = worker
 
-    def processing_completed(self, transcript: str, notes: str):
+    def processing_thread_finished(self, thread: QThread, worker: ProcessingWorker):
+        self._cancelled_processing_threads.discard(thread)
+        if self.worker_thread is thread:
+            self.worker_thread = None
+        if self._worker is worker:
+            self._worker = None
+
+    def cancel_current_work(self):
+        if self.recording:
+            self.cancel_recording()
+        elif self.record_button.property("processing"):
+            self.cancel_processing()
+
+    def cancel_recording(self):
+        answer = QMessageBox.question(
+            self,
+            "Discard this meeting?",
+            "Stop this accidental recording and discard its audio and screen recording?\n\n"
+            "Anything typed in My notes will remain on screen.",
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Discard:
+            return
+        self.timer.stop()
+        self.live_timer.stop()
+        if self.live_transcriber:
+            self.live_transcriber.stop()
+        self.live_transcriber = None
+        self.stop_screen_recording(wait=True)
+        self.set_screen_indicator(False)
+        self.recorder.cancel()
+        folder = self.current_folder
+        try:
+            root = default_output_dir(create=False).resolve()
+            if folder and folder.resolve().parent == root:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            pass
+        self.current_folder = None
+        self.current_audio = None
+        self.live_transcript.clear()
+        self.notes.clear()
+        self._finish_cancelled_state("Cancelled — the accidental recording was discarded. Your typed notes are still here.")
+
+    def cancel_processing(self):
+        self._processing_cancelled = True
+        self._processing_generation += 1
+        if self._worker:
+            try:
+                self._worker.progress.disconnect(self.status_label.setText)
+                self._worker.cancel()
+            except (RuntimeError, TypeError):
+                pass
+        if self.worker_thread and self.worker_thread.isRunning():
+            self._cancelled_processing_threads.add(self.worker_thread)
+        self.worker_thread = None
+        self._worker = None
+        self.save_personal_notes()
+        self._finish_cancelled_state(
+            "Note creation cancelled — your recording and typed notes are saved. You can start another meeting now."
+        )
+        self.save_button.setEnabled(True)
+        self.current_meeting_action.setEnabled(bool(self.current_folder))
+
+    def _finish_cancelled_state(self, message: str):
+        self.recording = False
+        self.paused = False
+        self.clarity_button.setEnabled(True)
+        self.screen_toggle.setEnabled(True)
+        self.capture_button.setEnabled(True)
+        self.live_mode_combo.setEnabled(True)
+        self.speaker_labels_combo.setEnabled(True)
+        self.refresh_transcript_menu()
+        self._set_record_button_state("idle")
+        self.consent_checkbox.setEnabled(True)
+        self.consent_checkbox.setChecked(False)
+        self.record_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
+        self.pause_button.setText("Ⅱ  Pause")
+        self.duration.setText("00:00:00")
+        self.mic_state.setText("Starts listening when recording begins")
+        self.system_state.setText("Starts listening when recording begins")
+        self.status_label.setText(message)
+
+    def processing_completed(self, transcript: str, notes: str, generation: int | None = None):
+        if generation is not None and (
+            generation != self._processing_generation or self._processing_cancelled
+        ):
+            return
         self.clarity_button.setEnabled(True)
         self.screen_toggle.setEnabled(True)
         self.capture_button.setEnabled(True)
@@ -2062,7 +2235,11 @@ class MeetingScribeWindow(QMainWindow):
         self.current_meeting_action.setEnabled(True)
         self.pause_button.setEnabled(False)
 
-    def processing_failed(self, message: str):
+    def processing_failed(self, message: str, generation: int | None = None):
+        if generation is not None and (
+            generation != self._processing_generation or self._processing_cancelled
+        ):
+            return
         self.clarity_button.setEnabled(True)
         self.screen_toggle.setEnabled(True)
         self.capture_button.setEnabled(True)
@@ -2230,6 +2407,12 @@ class MeetingScribeWindow(QMainWindow):
             self.update_jobs.cancel.set()
             QMessageBox.information(self, "Cancelling download", "The update download is cancelling. Please close the app again in a moment.")
             event.ignore()
+            return
+        if any(thread.isRunning() for thread in self._cancelled_processing_threads):
+            # Cancellation was already explicitly requested. End immediately rather
+            # than waiting for a native transcription call to return.
+            event.ignore()
+            self.force_close_processing()
             return
         if self.update_busy() and not self.recording:
             if self.confirm_force_close_processing():

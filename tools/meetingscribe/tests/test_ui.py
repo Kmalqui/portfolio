@@ -81,11 +81,88 @@ class InterfaceTests(unittest.TestCase):
         self.assertTrue(self.window.record_button.isEnabled())
         self.window._set_record_button_state("recording")
         self.assertTrue(self.window.record_button.property("recording"))
+        self.assertFalse(self.window.cancel_button.isHidden())
+        self.assertEqual(self.window.cancel_button.text(), "Cancel meeting")
         self.window._set_record_button_state("processing")
         self.assertTrue(self.window.record_button.property("processing"))
+        self.assertEqual(self.window.cancel_button.text(), "Cancel note creation")
         self.window._set_record_button_state("idle")
         self.assertFalse(self.window.record_button.property("recording"))
         self.assertFalse(self.window.record_button.property("processing"))
+        self.assertTrue(self.window.cancel_button.isHidden())
+
+    def test_accidental_recording_can_be_discarded_without_processing(self):
+        root = Path(self.settings_folder.name) / "meetings"
+        meeting = root / "2026-09-18_12-00-00"
+        meeting.mkdir(parents=True)
+        (meeting / "screen-recording.mp4").write_bytes(b"video")
+        self.window.current_folder = meeting
+        self.window.current_audio = meeting / "recording.wav"
+        self.window.recording = True
+        self.window.personal_notes.setPlainText("Keep my typed thought.")
+        self.window._set_record_button_state("recording")
+        with patch.object(
+            meetingscribe.QMessageBox,
+            "question",
+            return_value=meetingscribe.QMessageBox.StandardButton.Discard,
+        ), patch.object(meetingscribe, "default_output_dir", return_value=root), patch.object(
+            self.window.recorder, "cancel"
+        ) as cancel, patch.object(self.window, "stop_screen_recording"):
+            self.window.cancel_button.click()
+        cancel.assert_called_once()
+        self.assertFalse(self.window.recording)
+        self.assertFalse(meeting.exists())
+        self.assertEqual(self.window.personal_notes.toPlainText(), "Keep my typed thought.")
+        self.assertIn("discarded", self.window.status_label.text())
+        self.assertTrue(self.window.cancel_button.isHidden())
+
+    def test_note_creation_can_be_cancelled_and_controls_return_immediately(self):
+        meeting = Path(self.settings_folder.name) / "saved-meeting"
+        meeting.mkdir()
+        self.window.current_folder = meeting
+        self.window.current_audio = meeting / "recording.wav"
+        self.window._worker = Mock()
+        self.window.worker_thread = Mock()
+        self.window.worker_thread.isRunning.return_value = True
+        self.window._set_record_button_state("processing")
+        self.window.cancel_button.click()
+        self.window._worker = None
+        self.assertTrue(self.window._processing_cancelled)
+        self.assertIsNone(self.window.worker_thread)
+        self.assertFalse(self.window.record_button.isEnabled())
+        self.assertTrue(self.window.consent_checkbox.isEnabled())
+        self.assertTrue(self.window.save_button.isEnabled())
+        self.assertTrue(self.window.current_meeting_action.isEnabled())
+        self.assertIn("cancelled", self.window.status_label.text().lower())
+        self.window._cancelled_processing_threads.clear()
+
+    def test_cancel_before_final_processing_skips_worker(self):
+        self.window._processing_cancelled = True
+        self.window.live_transcriber = None
+        with patch.object(self.window, "process_audio") as process:
+            self.window.finish_live_before_processing()
+        process.assert_not_called()
+
+    def test_cancelled_processing_ignores_late_results(self):
+        self.window._processing_generation = 4
+        self.window._processing_cancelled = True
+        self.window.live_transcript.setPlainText("Keep this preview")
+        self.window.notes.setPlainText("Keep this note")
+        self.window.processing_completed("Late transcript", "Late summary", generation=3)
+        self.window.processing_failed("Late error", generation=3)
+        self.assertEqual(self.window.live_transcript.toPlainText(), "Keep this preview")
+        self.assertEqual(self.window.notes.toPlainText(), "Keep this note")
+
+    def test_finished_processing_worker_clears_only_its_own_references(self):
+        thread = Mock()
+        worker = Mock()
+        self.window.worker_thread = thread
+        self.window._worker = worker
+        self.window._cancelled_processing_threads.add(thread)
+        self.window.processing_thread_finished(thread, worker)
+        self.assertIsNone(self.window.worker_thread)
+        self.assertIsNone(self.window._worker)
+        self.assertNotIn(thread, self.window._cancelled_processing_threads)
 
     def test_live_mode_defaults_to_eco_and_off_skips_worker(self):
         self.assertEqual(self.window.live_mode_combo.currentData(), "eco")
