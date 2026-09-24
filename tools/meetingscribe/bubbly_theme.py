@@ -16,6 +16,7 @@ QPushButton { border-radius: 20px; padding: 4px 15px; }
 QPushButton#settingsButton { padding-right: 28px; }
 QPushButton#settingsButton::menu-indicator { subcontrol-position: center right; subcontrol-origin: padding; right: 10px; }
 QPushButton#recordButton { border-radius: 27px; font-size: 16px; }
+QPushButton#cancelButton { border-radius: 20px; font-weight: 700; }
 QPushButton#screenToggle { min-width: 142px; min-height: 42px; border-radius: 22px; font-weight: 700; padding: 3px 13px; }
 QLabel#timer { border-radius: 22px; }
 QLabel#statusPill { border-radius: 16px; }
@@ -59,6 +60,8 @@ QPushButton#recordButton:hover { background: #cbb0f5; }
 QPushButton#recordButton:disabled { background: #eee3f7; color: #85718f; }
 QPushButton#recordButton[recording="true"] { background: #b63b54; color: #ffffff; }
 QPushButton#recordButton[processing="true"] { background: #655086; color: #ffffff; }
+QPushButton#cancelButton { background: #fff0e7; color: #8a3f4f; border-color: #e8b9bd; }
+QPushButton#cancelButton:hover { background: #ffe2df; border-color: #cf7c88; }
 QPushButton#screenToggle:checked { background: #dff3df; color: #315f3b; border-color: #a9d1ac; }
 QPushButton#screenToggle:checked:hover { background: #d2ecd3; }
 QLabel#timer { background: #fff0e7; border-color: #eed7c8; color: #77462c; }
@@ -98,6 +101,8 @@ QPushButton#recordButton:hover { background: #e3c9fd; }
 QPushButton#recordButton:disabled { background: #4c3d5d; color: #bba6c8; }
 QPushButton#recordButton[recording="true"] { background: #b13c56; color: #ffffff; }
 QPushButton#recordButton[processing="true"] { background: #695083; color: #ffffff; }
+QPushButton#cancelButton { background: #573742; color: #ffdce1; border-color: #84505d; }
+QPushButton#cancelButton:hover { background: #704451; border-color: #c77788; }
 QPushButton#screenToggle:checked { background: #335344; color: #d9f5cf; border-color: #5f816e; }
 QPushButton#screenToggle:checked:hover { background: #3c6250; }
 QLabel#timer { background: #4a343e; border-color: #78545d; color: #ffd4be; }
