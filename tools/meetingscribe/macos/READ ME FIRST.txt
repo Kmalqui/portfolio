@@ -14,5 +14,8 @@ To record the other people in a meeting, install BlackHole 2ch separately and
 follow MeetingScribe's "Set up Mac meeting audio" guide. BlackHole is a system
 audio driver and is not bundled with this download.
 
+Official BlackHole project: https://github.com/ExistentialAudio/BlackHole
+Installation guide: https://github.com/ExistentialAudio/BlackHole/wiki/Installation
+
 Always tell meeting participants and obtain any permission required before
 recording.

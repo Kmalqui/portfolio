@@ -10,6 +10,10 @@ MeetingScribe installer keeps an existing Ollama installation instead of
 replacing it. AI models are not bundled and are downloaded separately when the
 user chooses to install one.
 
+BlackHole
+Official project: https://github.com/ExistentialAudio/BlackHole
+Installation guide: https://github.com/ExistentialAudio/BlackHole/wiki/Installation
+
 BlackHole is not bundled with MeetingScribe. It must be obtained separately
-from its official project because it is a system audio driver with separate
-installation and licensing requirements.
+because it is a system audio driver with separate installation and licensing
+requirements.
