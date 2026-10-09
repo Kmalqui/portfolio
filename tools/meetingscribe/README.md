@@ -8,13 +8,13 @@ You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
 The Mac download now contains the official Ollama app (currently v0.40.2). Open the DMG, Control-click **Install MeetingScribe**, and choose **Open**. The setup assistant installs MeetingScribe and adds Ollama only when Ollama is not already installed. Existing Ollama installations—including Applications, a user Applications folder, Homebrew, and `/usr/local` installations—are left unchanged.
 
-The local AI model is not bundled because it is several gigabytes. Install it once from **Settings → Install recommended AI model**. BlackHole remains a separate official download because it is a system audio driver with separate installation and licensing requirements. Ollama's MIT license and the package's [third-party notices](macos/THIRD-PARTY-NOTICES.txt) are included with the source and inside every Mac DMG.
+The local AI model is not bundled because it is several gigabytes. Install it once from **Settings → Install recommended AI model**. Download [BlackHole 2ch from its official project](https://github.com/ExistentialAudio/BlackHole) and use its [official installation guide](https://github.com/ExistentialAudio/BlackHole/wiki/Installation); it remains separate because it is a system audio driver with its own licensing and setup requirements. Ollama's MIT license and the package's [third-party notices](macos/THIRD-PARTY-NOTICES.txt) are included with the source and inside every Mac DMG.
 
 ## New in 0.4.0 beta — MeetingScribe for Mac
 
 MeetingScribe now ships as separate macOS downloads for Apple Silicon and Intel Macs. The Mac app keeps the same local transcription, summaries, speaker labels, pause, cancellation, saved meetings, and optional screen recording as Windows.
 
-macOS does not expose speaker-loopback recording to MeetingScribe. To capture the other people in a call, install **BlackHole 2ch**, create a Multi-Output Device in **Audio MIDI Setup**, and choose **BlackHole 2ch** as MeetingScribe's **Meeting audio input**. A visible **Set up Mac meeting audio** button walks through the process. BlackHole is not bundled or silently installed.
+macOS does not expose speaker-loopback recording to MeetingScribe. To capture the other people in a call, install [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole), create a Multi-Output Device in **Audio MIDI Setup**, and choose **BlackHole 2ch** as MeetingScribe's **Meeting audio input**. A visible **Set up Mac meeting audio** button walks through the process. BlackHole is not bundled or silently installed.
 
 The Mac download is ad-hoc signed but not Apple-notarized. On first launch, Control-click MeetingScribe in Applications, choose **Open**, and confirm. macOS will separately request Microphone permission and, only when needed, Screen Recording permission.
 

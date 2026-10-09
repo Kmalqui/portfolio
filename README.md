@@ -14,7 +14,7 @@ MeetingScribe records meetings with participant permission, creates a live trans
 
 [Setup, documentation, and source](tools/meetingscribe/) · [Open the latest release](https://github.com/Kmalqui/portfolio/releases/tag/meetingscribe-v0.4.1-beta)
 
-The Mac download includes the official Ollama app. Its installer keeps any existing Ollama installation instead of replacing it. AI models are downloaded separately, and BlackHole remains a separate official install because it is a macOS system audio driver with separate licensing and setup requirements.
+The Mac download includes the official Ollama app. Its installer keeps any existing Ollama installation instead of replacing it. AI models are downloaded separately. To capture everyone in a meeting, install [BlackHole 2ch from its official project](https://github.com/ExistentialAudio/BlackHole) and follow the [official installation guide](https://github.com/ExistentialAudio/BlackHole/wiki/Installation); it remains separate because it is a macOS system audio driver with its own licensing and setup requirements.
 
 ## Browser-extension library
 
