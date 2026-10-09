@@ -1,8 +1,14 @@
-# MeetingScribe for Windows
+# MeetingScribe for Windows and Mac
 
 MeetingScribe records you and the other people in an online meeting, turns the recording into a transcript, and creates organized meeting notes. Everything is processed on your own computer.
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
+
+## New in 0.4.1 beta — Ollama included with the Mac installer
+
+The Mac download now contains the official Ollama app (currently v0.40.2). Open the DMG, Control-click **Install MeetingScribe**, and choose **Open**. The setup assistant installs MeetingScribe and adds Ollama only when Ollama is not already installed. Existing Ollama installations—including Applications, a user Applications folder, Homebrew, and `/usr/local` installations—are left unchanged.
+
+The local AI model is not bundled because it is several gigabytes. Install it once from **Settings → Install recommended AI model**. BlackHole remains a separate official download because it is a system audio driver with separate installation and licensing requirements. Ollama's MIT license and the package's [third-party notices](macos/THIRD-PARTY-NOTICES.txt) are included with the source and inside every Mac DMG.
 
 ## New in 0.4.0 beta — MeetingScribe for Mac
 
@@ -156,7 +162,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.4.0 Windows installer. Use the same installation folder as before.
+2. Run the new 0.4.1 Windows installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -199,7 +205,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.4.0-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.4.1-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
@@ -234,14 +240,15 @@ Do not bypass a warning for a differently named or unexpected file. Do not disab
 ## Installing on macOS
 
 1. Download **Apple Silicon** for a Mac with an M-series chip, or **Intel** for an older Intel Mac.
-2. Open the `.dmg` and drag **MeetingScribe** into **Applications**.
-3. For the first launch, Control-click MeetingScribe, choose **Open**, then confirm. This beta is not notarized by Apple.
-4. In MeetingScribe, choose **Set up Mac meeting audio**.
-5. Install and open [Ollama for macOS](https://ollama.com/download/mac).
-6. Install [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole/wiki/Use-BlackHole-as-a-Virtual-Microphone). In Audio MIDI Setup, create a Multi-Output Device containing BlackHole and the headphones or speakers you use for meetings. Enable drift correction for BlackHole.
-7. Select that Multi-Output Device as the Mac's sound output. In MeetingScribe, choose your normal microphone under **Your microphone** and `BlackHole 2ch` under **Meeting audio input**.
-8. Choose **Settings → Install recommended AI model**. The local model is a large one-time download.
-9. Allow Microphone access when macOS asks. If you enable screen recording, also allow Screen Recording access and reopen MeetingScribe if macOS requests it.
+2. Open the `.dmg`.
+3. Control-click **Install MeetingScribe**, choose **Open**, and approve the normal administrator prompt. This beta is not notarized by Apple.
+4. The assistant installs MeetingScribe in Applications. It also installs the bundled official Ollama app unless Ollama is already present. Existing Ollama installations are never replaced.
+5. Control-click MeetingScribe in Applications, choose **Open**, then confirm on its first launch.
+6. In MeetingScribe, choose **Set up Mac meeting audio**.
+7. Install [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole/wiki/Use-BlackHole-as-a-Virtual-Microphone). In Audio MIDI Setup, create a Multi-Output Device containing BlackHole and the headphones or speakers you use for meetings. Enable drift correction for BlackHole.
+8. Select that Multi-Output Device as the Mac's sound output. In MeetingScribe, choose your normal microphone under **Your microphone** and `BlackHole 2ch` under **Meeting audio input**.
+9. Choose **Settings → Install recommended AI model**. The model is a large one-time download and is not included in the DMG.
+10. Allow Microphone access when macOS asks. If you enable screen recording, also allow Screen Recording access and reopen MeetingScribe if macOS requests it.
 
 BlackHole routes Mac audio to MeetingScribe while the Multi-Output Device lets you continue hearing the meeting. If the **Everyone else** meter stays still, confirm the Mac is using the Multi-Output Device and BlackHole is selected in MeetingScribe.
 

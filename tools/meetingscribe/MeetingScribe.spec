@@ -63,8 +63,8 @@ if is_mac:
         icon=app_icon,
         bundle_identifier='com.kmalqui.meetingscribe',
         info_plist={
-            'CFBundleShortVersionString': '0.4.0',
-            'CFBundleVersion': '0.4.0',
+            'CFBundleShortVersionString': '0.4.1',
+            'CFBundleVersion': '0.4.1',
             'LSMinimumSystemVersion': '12.0',
             'NSMicrophoneUsageDescription': (
                 'MeetingScribe needs microphone access to record your voice and the selected meeting-audio input.'

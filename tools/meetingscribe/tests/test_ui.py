@@ -406,6 +406,16 @@ class InterfaceTests(unittest.TestCase):
         start_ollama.assert_not_called()
         self.assertFalse(self.test_settings.value("start_ollama", True, type=bool))
 
+    def test_mac_finds_ollama_in_the_user_applications_folder(self):
+        home = Path(self.settings_folder.name)
+        executable = home / "Applications" / "Ollama.app" / "Contents" / "Resources" / "ollama"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("ollama", encoding="utf-8")
+        with patch.object(meetingscribe.sys, "platform", "darwin"), patch.object(
+            meetingscribe.shutil, "which", return_value=None
+        ), patch.object(meetingscribe.Path, "home", return_value=home):
+            self.assertEqual(self.window.ollama_executable(), executable)
+
     def test_start_ollama_only_launches_when_service_is_stopped(self):
         executable = Path(self.settings_folder.name) / "ollama.exe"
         with patch.object(self.window, "ollama_is_running", return_value=False), patch.object(
