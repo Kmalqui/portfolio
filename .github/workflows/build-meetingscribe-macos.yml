@@ -57,7 +57,8 @@ jobs:
             tests.test_updater
 
       - name: Validate interface
-        timeout-minutes: 3
+        # Intel-hosted runners execute the Qt interface suite more slowly.
+        timeout-minutes: 8
         env:
           QT_QPA_PLATFORM: minimal
         run: python -u -m unittest -v tests.test_ui
