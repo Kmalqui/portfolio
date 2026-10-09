@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.4.0-beta"
+APP_VERSION = "0.4.1-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
@@ -1633,7 +1633,8 @@ class MeetingScribeWindow(QMainWindow):
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
         instructions = QLabel(
-            "<b>1. Install Ollama</b> for private local summaries.<br>"
+            "<b>1. Ollama is included</b> for private local summaries. The Mac installer "
+            "adds it only when it is not already installed.<br>"
             "<b>2. Install BlackHole 2ch</b>, then use Audio MIDI Setup to create a "
             "Multi-Output Device containing BlackHole and your headphones or speakers.<br>"
             "<b>3. Select that Multi-Output Device as the Mac's sound output, then choose "
@@ -1645,7 +1646,7 @@ class MeetingScribeWindow(QMainWindow):
         instructions.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(instructions)
         actions = QHBoxLayout()
-        ollama = QPushButton("Install Ollama")
+        ollama = QPushButton("Ollama help")
         ollama.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://ollama.com/download/mac"))
         )
@@ -1662,8 +1663,8 @@ class MeetingScribeWindow(QMainWindow):
         actions.addWidget(audio_midi)
         layout.addLayout(actions)
         note = QLabel(
-            "After installing both apps, reopen MeetingScribe or choose Settings → Refresh Devices. "
-            "Then choose Settings → Install recommended AI model."
+            "After installing BlackHole, reopen MeetingScribe or choose Settings → Refresh Devices. "
+            "Then choose Settings → Install recommended AI model. AI models are not bundled."
         )
         note.setObjectName("sectionHint")
         note.setWordWrap(True)
@@ -1701,6 +1702,7 @@ class MeetingScribeWindow(QMainWindow):
         elif sys.platform == "darwin":
             candidates.extend((
                 Path("/Applications/Ollama.app/Contents/Resources/ollama"),
+                Path.home() / "Applications" / "Ollama.app" / "Contents" / "Resources" / "ollama",
                 Path("/opt/homebrew/bin/ollama"),
                 Path("/usr/local/bin/ollama"),
             ))
@@ -1727,7 +1729,7 @@ class MeetingScribeWindow(QMainWindow):
                     "Ollama is not installed",
                     (
                         "MeetingScribe could not find Ollama. Install Ollama for macOS, open it once, "
-                        "then choose Start Ollama now."
+                        "then choose Start Ollama now. If you used the bundled Mac setup, run it again."
                         if IS_MAC
                         else "MeetingScribe could not find Ollama. Run the MeetingScribe installer again or install Ollama, then choose Start Ollama now."
                     ),

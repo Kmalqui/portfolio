@@ -1,0 +1,18 @@
+MEETINGSCRIBE FOR MAC
+
+1. Control-click "Install MeetingScribe" and choose Open.
+2. Approve the normal Mac administrator prompt.
+3. MeetingScribe is copied to Applications.
+
+Ollama is included in this download. The installer adds it only when Ollama is
+not already installed. Existing Ollama installations are left unchanged.
+
+The local AI model is not included because it is several gigabytes. In
+MeetingScribe, choose Settings > Install recommended AI model once.
+
+To record the other people in a meeting, install BlackHole 2ch separately and
+follow MeetingScribe's "Set up Mac meeting audio" guide. BlackHole is a system
+audio driver and is not bundled with this download.
+
+Always tell meeting participants and obtain any permission required before
+recording.

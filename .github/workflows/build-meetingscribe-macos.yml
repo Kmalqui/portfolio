@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  OLLAMA_VERSION: v0.40.2
+  OLLAMA_SHA256: 2e2ecb82c47a690887e8ca4be23ed833e1dd229bd03dee80e6a444ccc78e2a78
+
 jobs:
   build:
     strategy:
@@ -47,12 +51,14 @@ jobs:
           python -u -m unittest -v \
             tests.test_audio_cleanup \
             tests.test_live_transcription \
+            tests.test_macos_packaging \
             tests.test_screen_recording \
             tests.test_speaker_labels \
             tests.test_updater
 
       - name: Validate interface
-        timeout-minutes: 3
+        # Intel-hosted runners execute the Qt interface suite more slowly.
+        timeout-minutes: 8
         env:
           QT_QPA_PLATFORM: minimal
         run: python -u -m unittest -v tests.test_ui
@@ -75,6 +81,20 @@ jobs:
       - name: Build macOS application
         run: pyinstaller --noconfirm MeetingScribe.spec
 
+      - name: Download verified Ollama app
+        run: |
+          mkdir -p vendor
+          curl --fail --location --retry 3 \
+            --output vendor/Ollama-darwin.zip \
+            "https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/Ollama-darwin.zip"
+          echo "${OLLAMA_SHA256}  vendor/Ollama-darwin.zip" | shasum -a 256 --check
+          ditto -x -k vendor/Ollama-darwin.zip vendor
+          test -d vendor/Ollama.app
+          codesign --verify --deep --strict vendor/Ollama.app
+          architectures="$(lipo -archs vendor/Ollama.app/Contents/MacOS/Ollama)"
+          echo "$architectures" | grep -q arm64
+          echo "$architectures" | grep -q x86_64
+
       - name: Ad-hoc sign and smoke test
         env:
           QT_QPA_PLATFORM: minimal
@@ -83,17 +103,41 @@ jobs:
           dist/MeetingScribe.app/Contents/MacOS/MeetingScribe --smoke-test
           codesign --verify --deep --strict dist/MeetingScribe.app
 
-      - name: Create drag-to-Applications disk image
+      - name: Create guided installer disk image
         run: |
           mkdir -p dmg-root
-          cp -R dist/MeetingScribe.app dmg-root/
-          ln -s /Applications dmg-root/Applications
+          osacompile -o "dmg-root/Install MeetingScribe.app" \
+            "macos/Install MeetingScribe.applescript"
+          mkdir -p "dmg-root/Install MeetingScribe.app/Contents/Resources/Payload"
+          ditto dist/MeetingScribe.app \
+            "dmg-root/Install MeetingScribe.app/Contents/Resources/Payload/MeetingScribe.app"
+          ditto vendor/Ollama.app \
+            "dmg-root/Install MeetingScribe.app/Contents/Resources/Payload/Ollama.app"
+          cp "macos/READ ME FIRST.txt" dmg-root/
+          cp macos/OLLAMA-LICENSE.txt dmg-root/
+          cp macos/THIRD-PARTY-NOTICES.txt dmg-root/
+          codesign --force --sign - "dmg-root/Install MeetingScribe.app"
+          codesign --verify --deep --strict "dmg-root/Install MeetingScribe.app"
           hdiutil create -volname "MeetingScribe" -srcfolder dmg-root -ov -format UDZO \
-            "MeetingScribe-0.4.0-beta-macOS-${{ matrix.architecture }}.dmg"
+            "MeetingScribe-0.4.1-beta-macOS-${{ matrix.architecture }}.dmg"
+
+      - name: Verify installer disk image
+        run: |
+          mount_point="$(mktemp -d)"
+          hdiutil attach -readonly -nobrowse \
+            -mountpoint "$mount_point" \
+            "MeetingScribe-0.4.1-beta-macOS-${{ matrix.architecture }}.dmg"
+          test -d "$mount_point/Install MeetingScribe.app"
+          test -d "$mount_point/Install MeetingScribe.app/Contents/Resources/Payload/MeetingScribe.app"
+          test -d "$mount_point/Install MeetingScribe.app/Contents/Resources/Payload/Ollama.app"
+          test -f "$mount_point/OLLAMA-LICENSE.txt"
+          test -f "$mount_point/THIRD-PARTY-NOTICES.txt"
+          codesign --verify --deep --strict "$mount_point/Install MeetingScribe.app"
+          hdiutil detach "$mount_point"
 
       - name: Upload macOS disk image
         uses: actions/upload-artifact@v4
         with:
           name: MeetingScribe-macOS-${{ matrix.architecture }}
-          path: tools/meetingscribe/MeetingScribe-0.4.0-beta-macOS-${{ matrix.architecture }}.dmg
+          path: tools/meetingscribe/MeetingScribe-0.4.1-beta-macOS-${{ matrix.architecture }}.dmg
           if-no-files-found: error
