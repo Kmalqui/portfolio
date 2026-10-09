@@ -37,12 +37,25 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Validate source
+      - name: Validate audio, recording, and updater logic
+        timeout-minutes: 3
         env:
           # Qt's offscreen plug-in can stall on hosted macOS runners. The
           # minimal plug-in exercises widgets without opening real windows.
           QT_QPA_PLATFORM: minimal
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -u -m unittest -v \
+            tests.test_audio_cleanup \
+            tests.test_live_transcription \
+            tests.test_screen_recording \
+            tests.test_speaker_labels \
+            tests.test_updater
+
+      - name: Validate interface
+        timeout-minutes: 3
+        env:
+          QT_QPA_PLATFORM: minimal
+        run: python -u -m unittest -v tests.test_ui
 
       - name: Create macOS app icon
         run: |
