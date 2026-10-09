@@ -172,7 +172,9 @@ class InterfaceTests(unittest.TestCase):
         self.window.consent_checkbox.setChecked(True)
         for mode in ("eco", "off"):
             self.window.live_mode_combo.setCurrentIndex(self.window.live_mode_combo.findData(mode))
-            with patch.object(meetingscribe, "default_output_dir", return_value=Path(self.settings_folder.name)), patch.object(
+            with patch.object(meetingscribe, "IS_MAC", False), patch.object(
+                meetingscribe, "default_output_dir", return_value=Path(self.settings_folder.name)
+            ), patch.object(
                 self.window.recorder, "start"
             ), patch.object(meetingscribe, "LiveTranscriber") as factory:
                 self.window.start_recording()
