@@ -39,7 +39,9 @@ jobs:
 
       - name: Validate source
         env:
-          QT_QPA_PLATFORM: offscreen
+          # Qt's offscreen plug-in can stall on hosted macOS runners. The
+          # minimal plug-in exercises widgets without opening real windows.
+          QT_QPA_PLATFORM: minimal
         run: python -m unittest discover -s tests -v
 
       - name: Create macOS app icon
@@ -62,7 +64,7 @@ jobs:
 
       - name: Ad-hoc sign and smoke test
         env:
-          QT_QPA_PLATFORM: offscreen
+          QT_QPA_PLATFORM: minimal
         run: |
           codesign --force --deep --sign - dist/MeetingScribe.app
           dist/MeetingScribe.app/Contents/MacOS/MeetingScribe --smoke-test
