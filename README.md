@@ -8,7 +8,7 @@ Every package uses neutral placeholders and must be configured for a site you ar
 
 | Tool | What it does | Source | Download |
 |---|---|---|---|
-| MeetingScribe | Private local meeting notes with cancellable transcription, adjustable live text, pause/resume, optional screen recording, speaker labels, voice cleanup, Ollama auto-start, and in-app updates | [Source](tools/meetingscribe/) | [Windows installer](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.3.18-beta/MeetingScribe-0.3.18-beta-One-Click-Windows-Setup.exe) |
+| MeetingScribe | Private local meeting notes for Windows and Mac, with cancellable transcription, adjustable live text, pause/resume, optional screen recording, speaker labels, voice cleanup, and Ollama | [Source](tools/meetingscribe/) | [Windows](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.4.0-beta/MeetingScribe-0.4.0-beta-One-Click-Windows-Setup.exe) · [Mac Apple Silicon](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.4.0-beta/MeetingScribe-0.4.0-beta-macOS-Apple-Silicon.dmg) · [Mac Intel](https://github.com/Kmalqui/portfolio/releases/download/meetingscribe-v0.4.0-beta/MeetingScribe-0.4.0-beta-macOS-Intel.dmg) |
 
 ## Browser extensions
 

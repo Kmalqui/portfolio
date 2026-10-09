@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QIcon, QPalette, QImage
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 from PySide6.QtTest import QTest
 
 import app as meetingscribe
@@ -294,12 +294,69 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn("Screen options…", labels)
         self.assertIn("Speaker labels: off…", labels)
         self.assertIn("Start Ollama now", labels)
+        self.assertIn("Install recommended AI model", labels)
         self.assertTrue(self.window.auto_ollama_action.isChecked())
         self.assertTrue(self.window.auto_update_action.isCheckable())
         self.assertIs(self.window.settings_button.menu(), self.window.settings_menu)
         self.assertFalse(any(child.metaObject().className() == "QStatusBar" for child in self.window.children()))
         self.window.auto_update_action.setChecked(False)
         self.assertFalse(self.test_settings.value("check_updates", True, type=bool))
+
+    def test_mac_ui_selects_blackhole_and_explains_the_input(self):
+        microphone = Mock()
+        microphone.id, microphone.name = "mic", "MacBook Microphone"
+        blackhole = Mock()
+        blackhole.id, blackhole.name = "blackhole", "BlackHole 2ch"
+        with patch.object(meetingscribe, "IS_MAC", True), patch.object(
+            meetingscribe.MeetingScribeWindow, "refresh_devices"
+        ), patch.object(meetingscribe.MeetingScribeWindow, "refresh_models"):
+            window = meetingscribe.MeetingScribeWindow()
+        window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+        window.show()
+        with patch.object(meetingscribe, "IS_MAC", True), patch.object(
+            window.recorder, "microphones", return_value=[microphone, blackhole]
+        ), patch.object(window.recorder, "system_audio_sources", return_value=[microphone, blackhole]):
+            window.refresh_devices()
+        labels = [label.text() for label in window.findChildren(QLabel)]
+        self.assertIn("Meeting audio input", labels)
+        self.assertTrue(hasattr(window, "mac_audio_setup_button"))
+        self.assertEqual(window.speaker_combo.currentData(), "blackhole")
+        self.assertIn("BlackHole", window.speaker_combo.currentText())
+        self.assertIn("Mac meeting audio setup…", [action.text() for action in window.settings_menu.actions()])
+        window.close()
+        window.deleteLater()
+
+    def test_mac_rejects_a_normal_microphone_as_meeting_audio(self):
+        self.window.mic_combo.addItem("MacBook Microphone", "mic")
+        self.window.speaker_combo.addItem("USB Microphone", "other-mic")
+        self.window.model_combo.addItem("qwen3:4b")
+        self.window.consent_checkbox.setChecked(True)
+        with patch.object(meetingscribe, "IS_MAC", True), patch.object(
+            self.window, "show_error"
+        ) as error, patch.object(self.window.recorder, "start") as start:
+            self.window.start_recording()
+        start.assert_not_called()
+        self.assertIn("virtual", error.call_args.args[0])
+
+    def test_recommended_model_install_uses_local_ollama(self):
+        executable = Path(self.settings_folder.name) / "ollama"
+        process = Mock()
+        process.poll.return_value = None
+        with patch.object(self.window, "ollama_executable", return_value=executable), patch.object(
+            self.window, "ollama_is_running", return_value=True
+        ), patch.object(
+            meetingscribe.QMessageBox,
+            "question",
+            return_value=meetingscribe.QMessageBox.StandardButton.Yes,
+        ), patch.object(meetingscribe.subprocess, "Popen", return_value=process) as launch, patch.object(
+            meetingscribe.QTimer, "singleShot"
+        ) as later:
+            self.window.install_recommended_model()
+        self.assertEqual(launch.call_args.args[0], [str(executable), "pull", "qwen3:4b"])
+        self.assertFalse(self.window.install_model_action.isEnabled())
+        later.assert_called_once()
+        self.window._model_install_process = None
+        self.window.install_model_action.setEnabled(True)
 
     def test_screen_recording_defaults_off_and_changes_consent_copy(self):
         self.assertFalse(self.window.screen_options().enabled)
