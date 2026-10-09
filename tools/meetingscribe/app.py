@@ -55,10 +55,11 @@ from PySide6.QtWidgets import (
 
 
 APP_NAME = "MeetingScribe"
-APP_VERSION = "0.3.18-beta"
+APP_VERSION = "0.4.0-beta"
 SAMPLE_RATE = 48_000
 BLOCK_SIZE = 4_800
 LIVE_CHUNK_SECONDS = 12
+IS_MAC = sys.platform == "darwin"
 LIVE_PROFILES = {
     "eco": ("tiny", 2, False, 12_000),
     "balanced": ("small", 4, True, 8_000),
@@ -285,7 +286,10 @@ def resource_path(relative_path: str) -> Path:
 
 
 def app_data_dir() -> Path:
-    root = Path(os.getenv("LOCALAPPDATA", Path.home())) / APP_NAME
+    if IS_MAC:
+        root = Path.home() / "Library" / "Application Support" / APP_NAME
+    else:
+        root = Path(os.getenv("LOCALAPPDATA", Path.home())) / APP_NAME
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -300,6 +304,12 @@ def default_output_dir(create: bool = True) -> Path:
 def safe_name(value: str) -> str:
     value = re.sub(r'[<>:"/\\|?*]+', "-", value).strip(" .")
     return value[:100] or "Meeting"
+
+
+def is_macos_loopback_name(name: str) -> bool:
+    """Recognize common virtual inputs that can receive Mac system audio."""
+    value = name.casefold()
+    return any(marker in value for marker in ("blackhole", "loopback", "soundflower"))
 
 
 @dataclass
@@ -331,6 +341,13 @@ class Recorder(QObject):
     def speakers():
         return list(sc.all_speakers())
 
+    @classmethod
+    def system_audio_sources(cls):
+        # SoundCard's CoreAudio backend cannot create speaker loopbacks. On a
+        # Mac, system audio must arrive through a virtual input such as
+        # BlackHole. Windows continues to use native WASAPI speaker loopback.
+        return cls.microphones() if IS_MAC else cls.speakers()
+
     def start(self, selection: AudioSelection) -> None:
         self._stop.clear()
         self._pause.clear()
@@ -338,10 +355,14 @@ class Recorder(QObject):
         self._system_chunks = []
         self._live_cursor = 0
         microphones = {str(d.id): d for d in self.microphones()}
-        speakers = {str(d.id): d for d in self.speakers()}
+        system_sources = {str(d.id): d for d in self.system_audio_sources()}
         microphone = microphones[selection.microphone_id]
-        speaker = speakers[selection.speaker_id]
-        loopback = sc.get_microphone(str(speaker.id), include_loopback=True)
+        source = system_sources[selection.speaker_id]
+        meeting_audio = (
+            source
+            if IS_MAC
+            else sc.get_microphone(str(source.id), include_loopback=True)
+        )
 
         self._threads = [
             threading.Thread(
@@ -351,7 +372,7 @@ class Recorder(QObject):
             ),
             threading.Thread(
                 target=self._capture,
-                args=(loopback, self._system_chunks, False),
+                args=(meeting_audio, self._system_chunks, False),
                 daemon=True,
             ),
         ]
@@ -751,6 +772,7 @@ class MeetingScribeWindow(QMainWindow):
         self._update_downloading = False
         self._available_update = None
         self._ollama_process = None
+        self._model_install_process = None
         self.update_jobs = updater.UpdateJobs(self)
         self.update_jobs.checked.connect(self.update_checked)
         self.update_jobs.downloaded.connect(self.update_downloaded)
@@ -820,12 +842,24 @@ class MeetingScribeWindow(QMainWindow):
         setup_title = QLabel("①  Let's get your audio ready")
         setup_title.setObjectName("sectionTitle")
         setup_hint = QLabel(
-            "Your microphone captures you. Meeting audio output captures everyone you hear."
+            (
+                "Your microphone captures you. BlackHole captures everyone you hear. "
+                "New Mac? Use the setup button below first."
+                if IS_MAC
+                else "Your microphone captures you. Meeting audio output captures everyone you hear."
+            )
         )
         setup_hint.setObjectName("sectionHint")
         setup_hint.setWordWrap(True)
         setup_layout.addWidget(setup_title)
         setup_layout.addWidget(setup_hint)
+        if IS_MAC:
+            self.mac_audio_setup_button = QPushButton("Set up Mac meeting audio…")
+            self.mac_audio_setup_button.setToolTip(
+                "Guided setup for Ollama, BlackHole, and macOS audio permissions."
+            )
+            self.mac_audio_setup_button.clicked.connect(self.show_mac_audio_setup)
+            setup_layout.addWidget(self.mac_audio_setup_button)
 
         form = QFormLayout()
         form.setHorizontalSpacing(18)
@@ -850,7 +884,7 @@ class MeetingScribeWindow(QMainWindow):
             combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for label_text, control in (
             ("Your microphone", self.mic_combo),
-            ("Meeting audio output", self.speaker_combo),
+            ("Meeting audio input" if IS_MAC else "Meeting audio output", self.speaker_combo),
             ("Local AI model", self.model_combo),
             ("Transcription quality", self.whisper_combo),
         ):
@@ -913,7 +947,11 @@ class MeetingScribeWindow(QMainWindow):
         self.system_meter.setRange(0, 100)
         self.system_meter.setTextVisible(False)
         self.system_meter.setToolTip(
-            "Moves when sound is captured from the selected meeting audio output."
+            (
+                "Moves when BlackHole receives sound from your Mac."
+                if IS_MAC
+                else "Moves when sound is captured from the selected meeting audio output."
+            )
         )
         system_panel.addWidget(self.system_meter)
         self.system_state = QLabel("Starts listening when recording begins")
@@ -1150,6 +1188,11 @@ class MeetingScribeWindow(QMainWindow):
         self.settings_button = QPushButton("Settings")
         self.settings_button.setObjectName("settingsButton")
         self.settings_menu = QMenu(self.settings_button)
+        if IS_MAC:
+            self.mac_audio_action = self.settings_menu.addAction(
+                "Mac meeting audio setup…", self.show_mac_audio_setup
+            )
+            self.settings_menu.addSeparator()
         self.screen_action = self.settings_menu.addAction("Screen options…", self.configure_screen_recording)
         self.speaker_action = self.settings_menu.addAction("Speaker labels…", self.configure_speaker_labels)
         self.settings_menu.addSeparator()
@@ -1157,6 +1200,9 @@ class MeetingScribeWindow(QMainWindow):
         self.settings_menu.addAction("Refresh Devices", self.refresh_all)
         self.settings_menu.addSeparator()
         self.start_ollama_action = self.settings_menu.addAction("Start Ollama now", lambda: self.start_ollama(manual=True))
+        self.install_model_action = self.settings_menu.addAction(
+            "Install recommended AI model", self.install_recommended_model
+        )
         self.auto_ollama_action = QAction("Start Ollama with MeetingScribe", self.settings_menu)
         self.auto_ollama_action.setCheckable(True)
         self.auto_ollama_action.setChecked(self.settings.value("start_ollama", True, type=bool))
@@ -1578,6 +1624,67 @@ class MeetingScribeWindow(QMainWindow):
         if self.auto_update_action.isChecked():
             self.check_updates(manual=False)
 
+    def show_mac_audio_setup(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Mac meeting audio setup")
+        dialog.setMinimumWidth(560)
+        layout = QVBoxLayout(dialog)
+        title = QLabel("Three quick steps before your first Mac meeting")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+        instructions = QLabel(
+            "<b>1. Install Ollama</b> for private local summaries.<br>"
+            "<b>2. Install BlackHole 2ch</b>, then use Audio MIDI Setup to create a "
+            "Multi-Output Device containing BlackHole and your headphones or speakers.<br>"
+            "<b>3. Select that Multi-Output Device as the Mac's sound output, then choose "
+            "BlackHole 2ch as Meeting audio input in MeetingScribe.<br><br>"
+            "The first time you record, macOS will also ask for Microphone and Screen "
+            "Recording permission. MeetingScribe does not bundle or silently install an audio driver."
+        )
+        instructions.setWordWrap(True)
+        instructions.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(instructions)
+        actions = QHBoxLayout()
+        ollama = QPushButton("Install Ollama")
+        ollama.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://ollama.com/download/mac"))
+        )
+        blackhole = QPushButton("Install BlackHole")
+        blackhole.clicked.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("https://github.com/ExistentialAudio/BlackHole/wiki/Use-BlackHole-as-a-Virtual-Microphone")
+            )
+        )
+        audio_midi = QPushButton("Open Audio MIDI Setup")
+        audio_midi.clicked.connect(self.open_audio_midi_setup)
+        actions.addWidget(ollama)
+        actions.addWidget(blackhole)
+        actions.addWidget(audio_midi)
+        layout.addLayout(actions)
+        note = QLabel(
+            "After installing both apps, reopen MeetingScribe or choose Settings → Refresh Devices. "
+            "Then choose Settings → Install recommended AI model."
+        )
+        note.setObjectName("sectionHint")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def open_audio_midi_setup(self):
+        if not IS_MAC:
+            return
+        try:
+            subprocess.Popen(
+                ["open", "-a", "Audio MIDI Setup"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            self.show_error(f"Could not open Audio MIDI Setup: {exc}")
+
     @staticmethod
     def ollama_executable():
         found = shutil.which("ollama")
@@ -1618,7 +1725,12 @@ class MeetingScribeWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     "Ollama is not installed",
-                    "MeetingScribe could not find Ollama. Run the MeetingScribe installer again or install Ollama, then choose Start Ollama now.",
+                    (
+                        "MeetingScribe could not find Ollama. Install Ollama for macOS, open it once, "
+                        "then choose Start Ollama now."
+                        if IS_MAC
+                        else "MeetingScribe could not find Ollama. Run the MeetingScribe installer again or install Ollama, then choose Start Ollama now."
+                    ),
                 )
             return False
         kwargs = {
@@ -1638,6 +1750,64 @@ class MeetingScribeWindow(QMainWindow):
         QTimer.singleShot(1200, lambda: self.finish_ollama_start(manual, 3))
         return True
 
+    def install_recommended_model(self):
+        if self._model_install_process and self._model_install_process.poll() is None:
+            QMessageBox.information(
+                self, "Model download in progress", "The recommended model is still downloading."
+            )
+            return
+        executable = self.ollama_executable()
+        if not executable:
+            QMessageBox.information(
+                self,
+                "Install Ollama first",
+                "Install and open Ollama, then return here to install the recommended local model.",
+            )
+            if IS_MAC:
+                QDesktopServices.openUrl(QUrl("https://ollama.com/download/mac"))
+            return
+        if not self.ollama_is_running():
+            self.start_ollama(manual=True)
+        answer = QMessageBox.question(
+            self,
+            "Install recommended AI model?",
+            "Download qwen3:4b for private local meeting summaries?\n\n"
+            "This is a large download and may take several minutes.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        try:
+            self._model_install_process = subprocess.Popen(
+                [str(executable), "pull", "qwen3:4b"], **kwargs
+            )
+        except OSError as exc:
+            self.show_error(f"Could not start the model download: {exc}")
+            return
+        self.install_model_action.setEnabled(False)
+        self.status_label.setText("Downloading the recommended local AI model…")
+        QTimer.singleShot(1500, self.finish_model_install)
+
+    def finish_model_install(self):
+        process = self._model_install_process
+        if process and process.poll() is None:
+            QTimer.singleShot(1500, self.finish_model_install)
+            return
+        self.install_model_action.setEnabled(True)
+        self._model_install_process = None
+        self.refresh_models()
+        if process and process.returncode == 0:
+            self._select_text(self.model_combo, "qwen3:4b")
+            self.status_label.setText("Recommended local AI model installed — you're ready to record.")
+        else:
+            self.status_label.setText("The model download did not finish. Check Ollama and try again.")
+
     def finish_ollama_start(self, manual=False, attempts_left=0):
         if self.ollama_is_running():
             self.refresh_models()
@@ -1652,7 +1822,11 @@ class MeetingScribeWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Ollama did not start",
-                "Open Ollama once from the Start menu, then return to MeetingScribe and try again.",
+                (
+                    "Open Ollama once from Applications, then return to MeetingScribe and try again."
+                    if IS_MAC
+                    else "Open Ollama once from the Start menu, then return to MeetingScribe and try again."
+                ),
             )
 
     def update_clicked(self):
@@ -1694,6 +1868,26 @@ class MeetingScribeWindow(QMainWindow):
             QMessageBox.information(self, "Updates", "Finish recording and transcription before installing an update.")
             return
         if not self._available_update or self._update_downloading:
+            return
+        if IS_MAC and getattr(sys, "frozen", False):
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("A new MeetingScribe is ready")
+            dialog.setText(
+                f"Version {self._available_update.version} is available.\n\n"
+                "Open the release page to download the correct Mac installer for Apple Silicon or Intel. "
+                "Your saved meetings and settings will remain on this Mac."
+            )
+            open_page = dialog.addButton("Open download page", QMessageBox.ButtonRole.AcceptRole)
+            later = dialog.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+            dialog.setDefaultButton(later)
+            dialog.exec()
+            if dialog.clickedButton() == open_page:
+                QDesktopServices.openUrl(
+                    QUrl(
+                        f"https://github.com/{updater.REPOSITORY}/releases/tag/"
+                        f"meetingscribe-v{self._available_update.version}"
+                    )
+                )
             return
         if sys.platform != "win32" or not getattr(sys, "frozen", False):
             QMessageBox.information(self, "Updates", "In-app installation is available in the installed Windows app. Source installations should update from GitHub.")
@@ -1819,9 +2013,13 @@ class MeetingScribeWindow(QMainWindow):
         prior_speaker = self.settings.value("speaker_id", "")
         self.mic_combo.clear()
         self.speaker_combo.clear()
-        for device in self.recorder.microphones():
+        microphones = self.recorder.microphones()
+        system_sources = self.recorder.system_audio_sources()
+        for device in microphones:
             self.mic_combo.addItem(device.name, str(device.id))
-        for device in self.recorder.speakers():
+        if IS_MAC:
+            self.speaker_combo.addItem("Choose BlackHole 2ch or another virtual input…", None)
+        for device in system_sources:
             self.speaker_combo.addItem(device.name, str(device.id))
         if prior_mic:
             self._select_data(self.mic_combo, prior_mic)
@@ -1829,15 +2027,24 @@ class MeetingScribeWindow(QMainWindow):
             physical_mic = next(
                 (
                     d
-                    for d in self.recorder.microphones()
+                    for d in microphones
                     if not any(word in d.name.lower() for word in ("voicemeeter", "virtual", "loopback"))
                 ),
                 None,
             )
             if physical_mic:
                 self._select_data(self.mic_combo, str(physical_mic.id))
-        if prior_speaker:
+        if prior_speaker and not IS_MAC:
             self._select_data(self.speaker_combo, prior_speaker)
+        elif IS_MAC:
+            virtual_input = next(
+                (device for device in system_sources if is_macos_loopback_name(device.name)),
+                None,
+            )
+            if virtual_input:
+                self._select_data(self.speaker_combo, str(virtual_input.id))
+            elif prior_speaker:
+                self._select_data(self.speaker_combo, prior_speaker)
         else:
             try:
                 self._select_data(self.speaker_combo, str(sc.default_speaker().id))
@@ -1969,7 +2176,16 @@ class MeetingScribeWindow(QMainWindow):
             )
             return
         if self.mic_combo.currentData() is None or self.speaker_combo.currentData() is None:
-            self.show_error("Select both a microphone and an audio output.")
+            self.show_error(
+                "Select your microphone and BlackHole meeting audio input. Use Set up Mac meeting audio if BlackHole is not listed."
+                if IS_MAC
+                else "Select both a microphone and an audio output."
+            )
+            return
+        if IS_MAC and not is_macos_loopback_name(self.speaker_combo.currentText()):
+            self.show_error(
+                "Choose BlackHole 2ch or another virtual meeting-audio input. A normal microphone cannot capture the other people on your Mac."
+            )
             return
         if self.model_combo.currentText().startswith(("Ollama is", "Install a")):
             self.show_error("Start Ollama and install a model before recording.")
@@ -2467,7 +2683,9 @@ def main():
         if not app._instance_mutex or ctypes.get_last_error() == 183:
             QMessageBox.information(None, "MeetingScribe", "MeetingScribe is already open, or Windows could not reserve its update lock. Close any other copy and try again.")
             return 0
-    icon_path = resource_path("assets/meetingscribe-icon.ico")
+    icon_path = resource_path(
+        "assets/meetingscribe-icon.png" if IS_MAC else "assets/meetingscribe-icon.ico"
+    )
     if not icon_path.exists():
         icon_path = resource_path("assets/meetingscribe-icon.png")
     app_icon = QIcon(str(icon_path))

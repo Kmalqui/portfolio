@@ -4,6 +4,14 @@ MeetingScribe records you and the other people in an online meeting, turns the r
 
 You do not need Obsidian, ChatGPT, an OpenAI API key, or a paid subscription.
 
+## New in 0.4.0 beta — MeetingScribe for Mac
+
+MeetingScribe now ships as separate macOS downloads for Apple Silicon and Intel Macs. The Mac app keeps the same local transcription, summaries, speaker labels, pause, cancellation, saved meetings, and optional screen recording as Windows.
+
+macOS does not expose speaker-loopback recording to MeetingScribe. To capture the other people in a call, install **BlackHole 2ch**, create a Multi-Output Device in **Audio MIDI Setup**, and choose **BlackHole 2ch** as MeetingScribe's **Meeting audio input**. A visible **Set up Mac meeting audio** button walks through the process. BlackHole is not bundled or silently installed.
+
+The Mac download is ad-hoc signed but not Apple-notarized. On first launch, Control-click MeetingScribe in Applications, choose **Open**, and confirm. macOS will separately request Microphone permission and, only when needed, Screen Recording permission.
+
 ## New in 0.3.18 beta — cancel without getting stuck
 
 While recording, choose **Cancel meeting** to stop and discard an accidental recording without starting final transcription. MeetingScribe asks before deleting the meeting audio or screen recording, and anything typed in **My notes** remains on screen.
@@ -148,7 +156,7 @@ By default, the location is `Documents\Meeting Notes` inside your user folder. T
 ### Updating an existing installation
 
 1. Finish any active meeting and close MeetingScribe.
-2. Run the new 0.3.18 installer. Use the same installation folder as before.
+2. Run the new 0.4.0 Windows installer. Use the same installation folder as before.
 3. Open MeetingScribe using the new desktop or Start-menu shortcut.
 
 Your saved meetings and settings are kept. Existing models are reused, although setup still checks them and may need an internet connection.
@@ -191,7 +199,7 @@ Do not use MeetingScribe for confidential, regulated, medical, legal, employment
 
 ## Part 1 — Run the one-click installer
 
-Open `MeetingScribe-0.3.18-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
+Open `MeetingScribe-0.4.0-beta-One-Click-Windows-Setup.exe` while connected to the internet and follow the setup screens. That single installer:
 
 - Installs MeetingScribe.
 - Downloads and installs Ollama from the official Ollama website if it is not already installed.
@@ -222,6 +230,20 @@ Only continue if you received the installer from someone you trust and its filen
 3. Select **Run anyway**.
 
 Do not bypass a warning for a differently named or unexpected file. Do not disable antivirus protection.
+
+## Installing on macOS
+
+1. Download **Apple Silicon** for a Mac with an M-series chip, or **Intel** for an older Intel Mac.
+2. Open the `.dmg` and drag **MeetingScribe** into **Applications**.
+3. For the first launch, Control-click MeetingScribe, choose **Open**, then confirm. This beta is not notarized by Apple.
+4. In MeetingScribe, choose **Set up Mac meeting audio**.
+5. Install and open [Ollama for macOS](https://ollama.com/download/mac).
+6. Install [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole/wiki/Use-BlackHole-as-a-Virtual-Microphone). In Audio MIDI Setup, create a Multi-Output Device containing BlackHole and the headphones or speakers you use for meetings. Enable drift correction for BlackHole.
+7. Select that Multi-Output Device as the Mac's sound output. In MeetingScribe, choose your normal microphone under **Your microphone** and `BlackHole 2ch` under **Meeting audio input**.
+8. Choose **Settings → Install recommended AI model**. The local model is a large one-time download.
+9. Allow Microphone access when macOS asks. If you enable screen recording, also allow Screen Recording access and reopen MeetingScribe if macOS requests it.
+
+BlackHole routes Mac audio to MeetingScribe while the Multi-Output Device lets you continue hearing the meeting. If the **Everyone else** meter stays still, confirm the Mac is using the Multi-Output Device and BlackHole is selected in MeetingScribe.
 
 ## Part 2 — Allow microphone access
 
@@ -475,7 +497,8 @@ AI-generated notes are a draft, not an authoritative record.
 ## Beta limitations
 
 - This is an unsigned community beta.
-- Windows is supported first; a macOS build is not included.
+- macOS needs BlackHole or another compatible virtual audio input to capture other participants; the operating system does not provide native speaker loopback to this app.
+- The Mac beta is ad-hoc signed but not Apple-notarized, so first launch requires Control-click → Open.
 - Speaker identification is not guaranteed.
 - Transcriptions and summaries can contain errors.
 - MeetingScribe does not join meetings automatically.

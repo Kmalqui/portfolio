@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 import soundfile as sf
@@ -11,6 +11,43 @@ from audio_cleanup import CleanupSettings, VoiceCleanup
 
 
 class AudioCleanupTests(unittest.TestCase):
+    def test_mac_uses_virtual_input_without_requesting_speaker_loopback(self):
+        microphone = Mock()
+        microphone.id, microphone.name = "mic", "Built-in Microphone"
+        blackhole = Mock()
+        blackhole.id, blackhole.name = "blackhole", "BlackHole 2ch"
+        threads = [Mock(), Mock()]
+        with patch.object(app, "IS_MAC", True), patch.object(
+            app.Recorder, "microphones", return_value=[microphone, blackhole]
+        ), patch.object(
+            app.Recorder, "system_audio_sources", return_value=[microphone, blackhole]
+        ), patch.object(
+            app.threading, "Thread", side_effect=threads
+        ) as thread_factory, patch.object(app.sc, "get_microphone") as get_loopback:
+            app.Recorder().start(app.AudioSelection("mic", "blackhole"))
+        get_loopback.assert_not_called()
+        self.assertIs(thread_factory.call_args_list[0].kwargs["args"][0], microphone)
+        self.assertIs(thread_factory.call_args_list[1].kwargs["args"][0], blackhole)
+        for thread in threads:
+            thread.start.assert_called_once()
+
+    def test_windows_still_resolves_selected_speaker_loopback(self):
+        microphone = Mock()
+        microphone.id, microphone.name = "mic", "Microphone"
+        speaker = Mock()
+        speaker.id, speaker.name = "speaker", "Speakers"
+        loopback = Mock()
+        with patch.object(app, "IS_MAC", False), patch.object(
+            app.Recorder, "microphones", return_value=[microphone]
+        ), patch.object(
+            app.Recorder, "system_audio_sources", return_value=[speaker]
+        ), patch.object(app.sc, "get_microphone", return_value=loopback) as get_loopback, patch.object(
+            app.threading, "Thread", side_effect=[Mock(), Mock()]
+        ) as thread_factory:
+            app.Recorder().start(app.AudioSelection("mic", "speaker"))
+        get_loopback.assert_called_once_with("speaker", include_loopback=True)
+        self.assertIs(thread_factory.call_args_list[1].kwargs["args"][0], loopback)
+
     def test_recorder_pause_state_can_resume(self):
         recorder = app.Recorder()
         self.assertFalse(recorder.is_paused())
